@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: production
-      url: https://training-app.fly.dev
+      url: https://training-app-hector.fly.dev
     steps:
       - uses: actions/checkout@v4
 

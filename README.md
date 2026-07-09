@@ -66,7 +66,7 @@ Once, from your local machine after `flyctl auth login`:
 
 ```bash
 # Reserve the app name in your Fly account (uses the checked-in fly.toml)
-flyctl launch --no-deploy --copy-config --name training-app
+flyctl launch --no-deploy --copy-config --name training-app-hector
 
 # Optional: set runtime secrets that don't need to be build args
 flyctl secrets set NEXT_PUBLIC_APP_ENV=production
