@@ -154,15 +154,15 @@ Explicitly rejected (not just deferred):
 
 **Time budget:** author estimates 4-8 focused hours per week. Milestone plan targets v1 in production in 10-15 weeks:
 
-| Milestone | Deliverable | Est. hours |
-|---|---|---|
-| M0 | Local stack running (Next + Auth + Neon + Drizzle) | 8-12 |
-| M1 | Fly deploy + GitHub Actions CI + Sentry + Neon branch-per-PR + one dummy e2e | 10-15 |
-| M2 | `workouts` schema + Drizzle migrations + CRUD via `workouts-repo` + server actions with auth guards | 8-12 |
-| M3 | Custom month calendar grid UI, day-cell clickable | 10-15 |
-| M4 | Add/edit/delete workout dialog + mark-done toggle | 8-12 |
-| M5 | Typography, color palette, mobile-responsive polish, real tests, README with screenshots | 10-15 |
-| M6 | Deploy to prod, use for two real weeks, fix real bugs | ongoing |
+| Milestone | Deliverable                                                                                         | Est. hours |
+| --------- | --------------------------------------------------------------------------------------------------- | ---------- |
+| M0        | Local stack running (Next + Auth + Neon + Drizzle)                                                  | 8-12       |
+| M1        | Fly deploy + GitHub Actions CI + Sentry + Neon branch-per-PR + one dummy e2e                        | 10-15      |
+| M2        | `workouts` schema + Drizzle migrations + CRUD via `workouts-repo` + server actions with auth guards | 8-12       |
+| M3        | Custom month calendar grid UI, day-cell clickable                                                   | 10-15      |
+| M4        | Add/edit/delete workout dialog + mark-done toggle                                                   | 8-12       |
+| M5        | Typography, color palette, mobile-responsive polish, real tests, README with screenshots            | 10-15      |
+| M6        | Deploy to prod, use for two real weeks, fix real bugs                                               | ongoing    |
 
 **Accountability:** author commits to a weekly public log (channel TBD — Twitter/Bluesky thread or blog). The published log is the difference between "shipped" and "abandoned" for solo side projects.
 
@@ -173,4 +173,4 @@ Explicitly rejected (not just deferred):
 - Auth.js configuration may frustrate — after 3 sunk weeks, switching to Clerk is a valid rescue, not a failure.
 - Feature creep at week 6-8 (Strava temptation) — reread the "rules of engagement" section.
 
-**Prior grill session:** this PRD is the resolved output of an interactive grill-me session covering scope, stack, hosting, DB, ORM, auth, calendar approach, testing/CI/monitoring, feature-shape, and time budget. Each decision was made explicitly with tradeoffs surfaced. When in doubt about *why* a choice was made, the answer is in that session's transcript.
+**Prior grill session:** this PRD is the resolved output of an interactive grill-me session covering scope, stack, hosting, DB, ORM, auth, calendar approach, testing/CI/monitoring, feature-shape, and time budget. Each decision was made explicitly with tradeoffs surfaced. When in doubt about _why_ a choice was made, the answer is in that session's transcript.

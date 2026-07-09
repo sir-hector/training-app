@@ -1,0 +1,16 @@
+.git
+.github
+.next
+node_modules
+npm-debug.log*
+.env
+.env.local
+.env.*.local
+*.md
+!README.md
+.vscode
+.idea
+.DS_Store
+coverage
+playwright-report
+test-results
