@@ -1,0 +1,41 @@
+# fly.toml — Training App
+#
+# Before first deploy, run `flyctl launch --no-deploy --copy-config` to
+# reserve the app name on your account. Then set secrets via `flyctl secrets set`
+# (see README) and deploy with `flyctl deploy`.
+
+app = "training-app"
+primary_region = "waw"  # Warsaw — change to your closest region if needed
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NEXT_PUBLIC_APP_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
