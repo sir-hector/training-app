@@ -32,6 +32,10 @@ jobs:
           project_id: ${{ vars.NEON_PROJECT_ID }}
           branch_name: preview/pr-${{ github.event.number }}
           api_key: ${{ secrets.NEON_API_KEY }}
+          # The project has several roles (Data API adds authenticator/anonymous/
+          # authenticated); migrations need the owner role.
+          username: neondb_owner
+          database: neondb
 
       - name: Run migrations against the PR branch
         run: npm run db:migrate
