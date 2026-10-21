@@ -1,5 +1,9 @@
-import "dotenv/config";
+import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
+
+// Next.js loads .env.local automatically; drizzle-kit does not. Load it here
+// so `npm run db:*` works locally. CI/deploy pass DATABASE_URL via env.
+config({ path: [".env.local", ".env"], quiet: true });
 
 export default defineConfig({
   dialect: "postgresql",
