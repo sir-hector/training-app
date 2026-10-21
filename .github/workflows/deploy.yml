@@ -20,6 +20,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      # Migrations run before the new image goes live so the schema is never
+      # behind the code. Drizzle migrations are idempotent (journal-tracked).
+      - name: Run migrations against production
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy
