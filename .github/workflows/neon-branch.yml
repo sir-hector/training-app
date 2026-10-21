@@ -1,0 +1,55 @@
+name: Neon branch per PR
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+concurrency:
+  group: neon-${{ github.event.number }}
+  cancel-in-progress: false
+
+jobs:
+  create:
+    name: Create branch + run migrations
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Create Neon branch
+        id: neon
+        uses: neondatabase/create-branch-action@v5
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch_name: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          # The project has several roles (Data API adds authenticator/anonymous/
+          # authenticated); migrations need the owner role.
+          username: neondb_owner
+          database: neondb
+
+      - name: Run migrations against the PR branch
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
+
+  delete:
+    name: Delete branch
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: preview/pr-${{ github.event.number }}
+          api_key: ${{ secrets.NEON_API_KEY }}
