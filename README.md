@@ -56,18 +56,20 @@ Commit the generated migration. CI applies it to a throwaway Neon branch for eve
 
 ### Scripts
 
-| Command                | What it does                                 |
-| ---------------------- | -------------------------------------------- |
-| `npm run dev`          | Next.js dev server with Turbopack            |
-| `npm run build`        | Production build                             |
-| `npm run start`        | Serve the production build                   |
-| `npm run typecheck`    | `tsc --noEmit` — same check CI runs          |
-| `npm run lint`         | ESLint — same lint CI runs                   |
-| `npm run format`       | Prettier — fix formatting                    |
-| `npm run format:check` | Prettier — verify formatting (used by CI)    |
-| `npm run db:generate`  | Drizzle — generate a migration from schema   |
-| `npm run db:migrate`   | Drizzle — apply migrations to `DATABASE_URL` |
-| `npm run db:studio`    | Drizzle Studio — browse the database         |
+| Command                    | What it does                                    |
+| -------------------------- | ----------------------------------------------- |
+| `npm run dev`              | Next.js dev server with Turbopack               |
+| `npm run build`            | Production build                                |
+| `npm run start`            | Serve the production build                      |
+| `npm run typecheck`        | `tsc --noEmit` — same check CI runs             |
+| `npm run lint`             | ESLint — same lint CI runs                      |
+| `npm run format`           | Prettier — fix formatting                       |
+| `npm run format:check`     | Prettier — verify formatting (used by CI)       |
+| `npm test`                 | Vitest unit tests (pure modules, no DB)         |
+| `npm run test:integration` | Vitest integration tests against `DATABASE_URL` |
+| `npm run db:generate`      | Drizzle — generate a migration from schema      |
+| `npm run db:migrate`       | Drizzle — apply migrations to `DATABASE_URL`    |
+| `npm run db:studio`        | Drizzle Studio — browse the database            |
 
 ## Deployment
 

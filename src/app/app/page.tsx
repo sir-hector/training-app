@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import { MonthGrid } from "@/components/calendar/month-grid";
 import { MonthNav } from "@/components/calendar/month-nav";
 import { getMonthGrid } from "@/lib/calendar-grid";
+import { workoutsRepo } from "@/lib/workouts-repo";
 
 const MONTH_PARAM = /^(\d{4})-(\d{2})$/;
 
@@ -34,6 +35,14 @@ export default async function AppPage({
   const { year, month } = resolveMonth(params.month, now);
   const grid = getMonthGrid(year, month);
 
+  // Fetch the whole visible range so padding days show their workouts too.
+  const days = grid.weeks.flat();
+  const workouts = await workoutsRepo.listByDateRange(
+    session.user.id,
+    days[0].iso,
+    days[days.length - 1].iso,
+  );
+
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-5 p-4 sm:p-8">
       <header className="flex items-center justify-between">
@@ -41,7 +50,7 @@ export default async function AppPage({
         <SignOutButton />
       </header>
       <MonthNav year={year} month={month} />
-      <MonthGrid grid={grid} todayIso={format(now, "yyyy-MM-dd")} />
+      <MonthGrid grid={grid} todayIso={format(now, "yyyy-MM-dd")} workouts={workouts} />
     </main>
   );
 }
