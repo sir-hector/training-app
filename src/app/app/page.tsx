@@ -1,22 +1,47 @@
 import { redirect } from "next/navigation";
+import { format } from "date-fns";
 import { auth } from "@/auth";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { MonthGrid } from "@/components/calendar/month-grid";
+import { MonthNav } from "@/components/calendar/month-nav";
+import { getMonthGrid } from "@/lib/calendar-grid";
 
-export default async function AppPage() {
+const MONTH_PARAM = /^(\d{4})-(\d{2})$/;
+
+function resolveMonth(param: string | undefined, now: Date): { year: number; month: number } {
+  const m = param?.match(MONTH_PARAM);
+  if (m) {
+    const year = Number(m[1]);
+    const month = Number(m[2]);
+    if (month >= 1 && month <= 12 && year >= 1970 && year <= 2200) return { year, month };
+  }
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+export default async function AppPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
   // The proxy already redirects anonymous visitors, but verify again here —
   // the proxy is an optimistic check, not the source of truth.
-  const session = await auth();
+  const [session, params] = await Promise.all([auth(), searchParams]);
   if (!session) redirect("/?callbackUrl=/app");
 
+  // "Today" is the server's clock (UTC on Fly). Good enough for v1; revisit if
+  // the highlight is off near midnight.
+  const now = new Date();
+  const { year, month } = resolveMonth(params.month, now);
+  const grid = getMonthGrid(year, month);
+
   return (
-    <main className="mx-auto flex min-h-svh max-w-3xl flex-col gap-6 p-8">
+    <main className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-5 p-4 sm:p-8">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
         <SignOutButton />
       </header>
-      <p className="text-muted-foreground text-sm">
-        Signed in as {session.user.email}. The calendar arrives in the next slice.
-      </p>
+      <MonthNav year={year} month={month} />
+      <MonthGrid grid={grid} todayIso={format(now, "yyyy-MM-dd")} />
     </main>
   );
 }
