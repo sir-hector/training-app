@@ -102,6 +102,8 @@ flyctl secrets set -a training-app-hector \
   AUTH_TRUST_HOST=true
 ```
 
+`AUTH_URL` is not a secret and lives in `fly.toml` under `[env]`.
+
 The Google OAuth client also needs `https://training-app-hector.fly.dev/api/auth/callback/google` as an authorised redirect URI.
 
 ### First-time Fly.io setup

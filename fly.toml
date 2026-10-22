@@ -12,6 +12,9 @@ primary_region = 'fra'
 [env]
   NEXT_PUBLIC_APP_ENV = 'production'
   PORT = '3000'
+  # Auth.js builds OAuth callback URLs from this. Without it, it falls back to
+  # the container bind address (0.0.0.0:3000) and Google rejects the redirect.
+  AUTH_URL = 'https://training-app-hector.fly.dev'
 
 [http_service]
   internal_port = 3000
