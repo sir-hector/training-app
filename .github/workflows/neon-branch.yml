@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   create:
-    name: Create branch + run migrations
+    name: Create branch + migrate + integration tests
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -39,6 +39,11 @@ jobs:
 
       - name: Run migrations against the PR branch
         run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
+
+      - name: Integration tests against the PR branch
+        run: npm run test:integration
         env:
           DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
 

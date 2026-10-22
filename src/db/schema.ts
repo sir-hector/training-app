@@ -1,5 +1,17 @@
-import { boolean, integer, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  date,
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
+import { WORKOUT_TYPES } from "@/lib/workout-types";
 
 // Auth.js tables. Shape follows the Drizzle adapter's expected schema:
 // https://authjs.dev/getting-started/adapters/drizzle
@@ -68,3 +80,34 @@ export const authenticators = pgTable(
   },
   (authenticator) => [primaryKey({ columns: [authenticator.userId, authenticator.credentialID] })],
 );
+
+// ---------------------------------------------------------------------------
+// App tables
+// ---------------------------------------------------------------------------
+
+export const workoutTypeEnum = pgEnum("workout_type", WORKOUT_TYPES);
+
+export const workouts = pgTable(
+  "workouts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Day precision, stored as a DATE; read/written as "YYYY-MM-DD". */
+    date: date("date", { mode: "string" }).notNull(),
+    type: workoutTypeEnum("type").notNull(),
+    notes: text("notes"),
+    done: boolean("done").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index("workouts_user_id_date_idx").on(t.userId, t.date)],
+);
+
+export type Workout = typeof workouts.$inferSelect;
+export type NewWorkout = typeof workouts.$inferInsert;

@@ -1,3 +1,4 @@
+import type { Workout } from "@/db/schema";
 import { WEEKDAYS, type MonthGrid as MonthGridData } from "@/lib/calendar-grid";
 import { DayCell } from "./day-cell";
 
@@ -5,9 +6,18 @@ type Props = {
   grid: MonthGridData;
   /** ISO date of "today", e.g. "2026-10-21". */
   todayIso: string;
+  /** Workouts covering the whole grid range (incl. padding days). */
+  workouts: Workout[];
 };
 
-export function MonthGrid({ grid, todayIso }: Props) {
+export function MonthGrid({ grid, todayIso, workouts }: Props) {
+  const byDay = new Map<string, Workout[]>();
+  for (const w of workouts) {
+    const list = byDay.get(w.date);
+    if (list) list.push(w);
+    else byDay.set(w.date, [w]);
+  }
+
   return (
     <div className="flex flex-col gap-1">
       <div className="grid grid-cols-7 gap-1" aria-hidden>
@@ -26,7 +36,12 @@ export function MonthGrid({ grid, todayIso }: Props) {
         className="grid grid-cols-7 gap-1"
       >
         {grid.weeks.flat().map((day) => (
-          <DayCell key={day.iso} day={day} isToday={day.iso === todayIso} />
+          <DayCell
+            key={day.iso}
+            day={day}
+            isToday={day.iso === todayIso}
+            workouts={byDay.get(day.iso) ?? []}
+          />
         ))}
       </div>
     </div>
