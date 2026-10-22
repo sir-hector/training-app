@@ -25,7 +25,9 @@ export default async function Home({
 
         {session ? (
           <div className="flex items-center gap-3">
-            <Button render={<Link href="/app" />}>Open calendar</Button>
+            <Button nativeButton={false} render={<Link href="/app" />}>
+              Open calendar
+            </Button>
             <SignOutButton />
           </div>
         ) : (
