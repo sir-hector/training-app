@@ -7,7 +7,13 @@ import type { Workout } from "@/db/schema";
 import { WORKOUT_TYPE_META } from "@/lib/workout-types";
 import { cn } from "@/lib/utils";
 
-export function WorkoutCard({ workout }: { workout: Workout }) {
+type Props = {
+  workout: Workout;
+  /** Opens the edit dialog. */
+  onEdit: () => void;
+};
+
+export function WorkoutCard({ workout, onEdit }: Props) {
   const meta = WORKOUT_TYPE_META[workout.type];
   const Icon = meta.icon;
 
@@ -31,7 +37,14 @@ export function WorkoutCard({ workout }: { workout: Workout }) {
       data-slot="workout-card"
       data-done={done || undefined}
       title={workout.notes ?? meta.label}
+      // Pointer users can tap anywhere on the card; keyboard users get the
+      // labelled button below. Stop propagation so the day's "add" doesn't fire.
+      onClick={(e) => {
+        e.stopPropagation();
+        onEdit();
+      }}
       className={cn(
+        "cursor-pointer hover:brightness-95",
         "flex min-w-0 items-center gap-1 rounded-md px-0.5 py-0.5 text-[0.65rem] leading-tight font-medium transition-opacity sm:px-1 sm:text-xs",
         meta.cardClass,
         done && "opacity-55",
@@ -62,9 +75,22 @@ export function WorkoutCard({ workout }: { workout: Workout }) {
           <Icon className="size-2 sm:size-2.5" aria-hidden />
         )}
       </button>
-      <span className={cn("sr-only sm:not-sr-only sm:truncate", done && "line-through")}>
+      <button
+        type="button"
+        aria-label={`Edit ${meta.label}${workout.notes ? `: ${workout.notes}` : ""}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onEdit();
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+        className={cn(
+          "focus-visible:ring-ring/60 min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2",
+          "sr-only sm:not-sr-only sm:truncate",
+          done && "line-through",
+        )}
+      >
         {meta.label}
-      </span>
+      </button>
     </div>
   );
 }

@@ -107,6 +107,42 @@ describe("workoutsRepo", () => {
     expect(untouched?.completedAt).toBeNull();
   });
 
+  it("update changes only the given fields and persists them", async () => {
+    const w = await workoutsRepo.create(userA, { date: "2026-07-01", type: "run", notes: "old" });
+
+    const updated = await workoutsRepo.update(userA, w.id, { type: "tempo", notes: "  new  " });
+    expect(updated?.type).toBe("tempo");
+    expect(updated?.notes).toBe("new");
+    expect(updated?.date).toBe("2026-07-01");
+
+    const moved = await workoutsRepo.update(userA, w.id, { date: "2026-07-03", notes: "" });
+    expect(moved?.date).toBe("2026-07-03");
+    expect(moved?.notes).toBeNull();
+    expect(moved?.type).toBe("tempo");
+
+    const reread = await workoutsRepo.findById(userA, w.id);
+    expect(reread).toMatchObject({ date: "2026-07-03", type: "tempo", notes: null });
+  });
+
+  it("CRITICAL: update cannot touch another user's workout", async () => {
+    const b = await workoutsRepo.create(userB, { date: "2026-07-05", type: "bike", notes: "mine" });
+    expect(await workoutsRepo.update(userA, b.id, { notes: "hijacked", type: "gym" })).toBeNull();
+    expect(await workoutsRepo.findById(userB, b.id)).toMatchObject({ notes: "mine", type: "bike" });
+  });
+
+  it("delete removes the workout", async () => {
+    const w = await workoutsRepo.create(userA, { date: "2026-07-07", type: "gym" });
+    expect(await workoutsRepo.delete(userA, w.id)).toBe(true);
+    expect(await workoutsRepo.findById(userA, w.id)).toBeNull();
+    expect(await workoutsRepo.delete(userA, w.id)).toBe(false);
+  });
+
+  it("CRITICAL: delete cannot remove another user's workout", async () => {
+    const b = await workoutsRepo.create(userB, { date: "2026-07-08", type: "gym" });
+    expect(await workoutsRepo.delete(userA, b.id)).toBe(false);
+    expect(await workoutsRepo.findById(userB, b.id)).not.toBeNull();
+  });
+
   it("deleting a user cascades their workouts", async () => {
     const tmp = `test-c-${run}`;
     await db.insert(users).values({ id: tmp, email: `${tmp}@test.invalid` });
