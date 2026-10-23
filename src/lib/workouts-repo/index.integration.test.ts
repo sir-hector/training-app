@@ -73,6 +73,40 @@ describe("workoutsRepo", () => {
     expect(await workoutsRepo.findById(userB, b.id)).not.toBeNull();
   });
 
+  it("setDone stamps completed_at on true and clears it on false", async () => {
+    const w = await workoutsRepo.create(userA, { date: "2026-08-01", type: "run" });
+
+    const on = await workoutsRepo.setDone(userA, w.id, true);
+    expect(on?.done).toBe(true);
+    expect(on?.completedAt).toBeInstanceOf(Date);
+    const firstStamp = on!.completedAt!.getTime();
+
+    // Re-marking done keeps the original completion time.
+    const again = await workoutsRepo.setDone(userA, w.id, true);
+    expect(again?.completedAt?.getTime()).toBe(firstStamp);
+
+    const off = await workoutsRepo.setDone(userA, w.id, false);
+    expect(off?.done).toBe(false);
+    expect(off?.completedAt).toBeNull();
+
+    const onAgain = await workoutsRepo.setDone(userA, w.id, true);
+    expect(onAgain?.done).toBe(true);
+    expect(onAgain?.completedAt?.getTime()).toBeGreaterThanOrEqual(firstStamp);
+
+    // Persisted, not just returned.
+    const reread = await workoutsRepo.findById(userA, w.id);
+    expect(reread?.done).toBe(true);
+    expect(reread?.completedAt).not.toBeNull();
+  });
+
+  it("CRITICAL: setDone cannot touch another user's workout", async () => {
+    const b = await workoutsRepo.create(userB, { date: "2026-08-02", type: "bike" });
+    expect(await workoutsRepo.setDone(userA, b.id, true)).toBeNull();
+    const untouched = await workoutsRepo.findById(userB, b.id);
+    expect(untouched?.done).toBe(false);
+    expect(untouched?.completedAt).toBeNull();
+  });
+
   it("deleting a user cascades their workouts", async () => {
     const tmp = `test-c-${run}`;
     await db.insert(users).values({ id: tmp, email: `${tmp}@test.invalid` });

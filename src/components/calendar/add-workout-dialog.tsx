@@ -26,6 +26,9 @@ import { WORKOUT_TYPES, WORKOUT_TYPE_META, type WorkoutType } from "@/lib/workou
 
 const initial: CreateWorkoutState = { status: "idle" };
 
+// Lets the select trigger show "Long run" rather than the raw "long_run".
+const TYPE_ITEMS = WORKOUT_TYPES.map((t) => ({ value: t, label: WORKOUT_TYPE_META[t].label }));
+
 type Props = {
   /** "YYYY-MM-DD" */
   dateIso: string;
@@ -65,6 +68,7 @@ export function AddWorkoutDialog({ dateIso, open, onOpenChange }: Props) {
             <Field data-invalid={errors?.type ? true : undefined}>
               <FieldLabel htmlFor="workout-type">Type</FieldLabel>
               <Select
+                items={TYPE_ITEMS}
                 name="type"
                 value={type}
                 onValueChange={(v) => setType(v as WorkoutType | null)}

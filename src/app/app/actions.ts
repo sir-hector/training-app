@@ -52,3 +52,34 @@ export async function createWorkout(
   revalidatePath("/app");
   return { status: "success", workoutId: workout.id };
 }
+
+const setDoneSchema = z.object({
+  workoutId: z.uuid(),
+  done: z.boolean(),
+});
+
+export type SetDoneResult = { ok: true; done: boolean } | { ok: false; message: string };
+
+export async function setWorkoutDone(workoutId: string, done: boolean): Promise<SetDoneResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { ok: false, message: "You must be signed in." };
+  }
+
+  const parsed = setDoneSchema.safeParse({ workoutId, done });
+  if (!parsed.success) {
+    return { ok: false, message: "Invalid request." };
+  }
+
+  const updated = await workoutsRepo.setDone(
+    session.user.id,
+    parsed.data.workoutId,
+    parsed.data.done,
+  );
+  if (!updated) {
+    return { ok: false, message: "Workout not found." };
+  }
+
+  revalidatePath("/app");
+  return { ok: true, done: updated.done };
+}
