@@ -5,12 +5,24 @@ import type { WorkoutType } from "@/lib/workout-types";
 
 export type { Workout };
 
+export type UpdateWorkoutPatch = {
+  /** "YYYY-MM-DD" */
+  date?: string;
+  type?: WorkoutType;
+  notes?: string | null;
+};
+
 export type CreateWorkoutInput = {
   /** "YYYY-MM-DD" */
   date: string;
   type: WorkoutType;
   notes?: string | null;
 };
+
+function normalizeNotes(notes: string | null | undefined): string | null {
+  const trimmed = notes?.trim();
+  return trimmed ? trimmed : null;
+}
 
 /**
  * Data access for workouts. **Every method takes `userId` first and scopes
@@ -28,7 +40,7 @@ export const workoutsRepo = {
         userId,
         date: input.date,
         type: input.type,
-        notes: input.notes?.trim() ? input.notes.trim() : null,
+        notes: normalizeNotes(input.notes),
       })
       .returning();
     return row;
@@ -44,6 +56,34 @@ export const workoutsRepo = {
       .from(workouts)
       .where(and(eq(workouts.userId, userId), gte(workouts.date, from), lte(workouts.date, to)))
       .orderBy(asc(workouts.date), asc(workouts.createdAt));
+  },
+
+  /**
+   * Apply a partial update. Returns the updated row, or null when the
+   * workout doesn't exist for this user (nothing is written).
+   */
+  async update(userId: string, id: string, patch: UpdateWorkoutPatch): Promise<Workout | null> {
+    const set: Partial<typeof workouts.$inferInsert> = {};
+    if (patch.date !== undefined) set.date = patch.date;
+    if (patch.type !== undefined) set.type = patch.type;
+    if (patch.notes !== undefined) set.notes = normalizeNotes(patch.notes);
+    if (Object.keys(set).length === 0) return this.findById(userId, id);
+
+    const [row] = await db
+      .update(workouts)
+      .set(set)
+      .where(and(eq(workouts.userId, userId), eq(workouts.id, id)))
+      .returning();
+    return row ?? null;
+  },
+
+  /** Delete a workout. Returns false when it doesn't exist for this user. */
+  async delete(userId: string, id: string): Promise<boolean> {
+    const rows = await db
+      .delete(workouts)
+      .where(and(eq(workouts.userId, userId), eq(workouts.id, id)))
+      .returning({ id: workouts.id });
+    return rows.length > 0;
   },
 
   /**

@@ -12,6 +12,23 @@ const createWorkoutSchema = z.object({
   notes: z.string().trim().max(2000, "Notes are too long").optional(),
 });
 
+const updateWorkoutSchema = createWorkoutSchema.extend({
+  workoutId: z.uuid(),
+});
+
+type FieldErrors = Partial<Record<"date" | "type" | "notes", string>>;
+
+function fieldErrorsFrom<T extends { date: unknown; type: unknown; notes?: unknown }>(
+  error: z.ZodError<T>,
+): FieldErrors {
+  const flat = z.flattenError(error);
+  return {
+    date: flat.fieldErrors.date?.[0],
+    type: flat.fieldErrors.type?.[0],
+    notes: flat.fieldErrors.notes?.[0],
+  };
+}
+
 export type CreateWorkoutState =
   | { status: "idle" }
   | {
@@ -36,15 +53,10 @@ export async function createWorkout(
     notes: formData.get("notes") ?? undefined,
   });
   if (!parsed.success) {
-    const flat = z.flattenError(parsed.error);
     return {
       status: "error",
       message: "Please fix the highlighted fields.",
-      fieldErrors: {
-        date: flat.fieldErrors.date?.[0],
-        type: flat.fieldErrors.type?.[0],
-        notes: flat.fieldErrors.notes?.[0],
-      },
+      fieldErrors: fieldErrorsFrom(parsed.error),
     };
   }
 
@@ -82,4 +94,63 @@ export async function setWorkoutDone(workoutId: string, done: boolean): Promise<
 
   revalidatePath("/app");
   return { ok: true, done: updated.done };
+}
+
+/** Same state shape as create so the dialog can use either action. */
+export async function updateWorkout(
+  _prev: CreateWorkoutState,
+  formData: FormData,
+): Promise<CreateWorkoutState> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { status: "error", message: "You must be signed in." };
+  }
+
+  const parsed = updateWorkoutSchema.safeParse({
+    workoutId: formData.get("workoutId"),
+    date: formData.get("date"),
+    type: formData.get("type"),
+    notes: formData.get("notes") ?? undefined,
+  });
+  if (!parsed.success) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted fields.",
+      fieldErrors: fieldErrorsFrom(parsed.error),
+    };
+  }
+
+  const { workoutId, ...patch } = parsed.data;
+  const updated = await workoutsRepo.update(session.user.id, workoutId, {
+    ...patch,
+    notes: patch.notes ?? null,
+  });
+  if (!updated) {
+    return { status: "error", message: "Workout not found." };
+  }
+
+  revalidatePath("/app");
+  return { status: "success", workoutId: updated.id };
+}
+
+export type DeleteWorkoutResult = { ok: true } | { ok: false; message: string };
+
+export async function deleteWorkout(workoutId: string): Promise<DeleteWorkoutResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { ok: false, message: "You must be signed in." };
+  }
+
+  const parsed = z.uuid().safeParse(workoutId);
+  if (!parsed.success) {
+    return { ok: false, message: "Invalid request." };
+  }
+
+  const deleted = await workoutsRepo.delete(session.user.id, parsed.data);
+  if (!deleted) {
+    return { ok: false, message: "Workout not found." };
+  }
+
+  revalidatePath("/app");
+  return { ok: true };
 }

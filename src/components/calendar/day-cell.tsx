@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useOptimistic, useState } from "react";
 import type { Workout } from "@/db/schema";
 import type { GridDay } from "@/lib/calendar-grid";
 import { cn } from "@/lib/utils";
-import { AddWorkoutDialog } from "./add-workout-dialog";
 import { WorkoutCard } from "./workout-card";
+import { WorkoutDialog, type OptimisticChange } from "./workout-dialog";
 
 type Props = {
   day: GridDay;
@@ -14,13 +14,29 @@ type Props = {
 };
 
 /**
- * One calendar cell. Click (or Enter/Space) opens the Add Workout dialog.
+ * One calendar cell. Clicking empty space adds a workout; clicking a card
+ * edits it.
  */
 export function DayCell({ day, isToday, workouts }: Props) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Workout | undefined>(undefined);
   // Bumped on every open so the dialog remounts with a fresh form.
   const [session, setSession] = useState(0);
-  const openDialog = () => {
+
+  // Optimistic view of this day's workouts. Reverts to the server data
+  // (revalidated by the action) once the transition settles.
+  const [visible, applyOptimistic] = useOptimistic(
+    workouts,
+    (current: Workout[], change: OptimisticChange) => {
+      if (change.kind === "delete") return current.filter((w) => w.id !== change.id);
+      // Moved to another day: drop it here; the target cell picks it up on revalidate.
+      if (change.workout.date !== day.iso) return current.filter((w) => w.id !== change.workout.id);
+      return current.map((w) => (w.id === change.workout.id ? change.workout : w));
+    },
+  );
+
+  const openDialog = (workout?: Workout) => {
+    setEditing(workout);
     setSession((n) => n + 1);
     setOpen(true);
   };
@@ -29,11 +45,12 @@ export function DayCell({ day, isToday, workouts }: Props) {
     <>
       <div
         role="gridcell"
-        aria-label={`${day.iso}, ${workouts.length} workout${workouts.length === 1 ? "" : "s"}`}
+        aria-label={`${day.iso}, ${visible.length} workout${visible.length === 1 ? "" : "s"}`}
         aria-current={isToday ? "date" : undefined}
         tabIndex={0}
-        onClick={openDialog}
+        onClick={() => openDialog()}
         onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             openDialog();
@@ -53,15 +70,22 @@ export function DayCell({ day, isToday, workouts }: Props) {
         >
           {day.day}
         </span>
-        {workouts.length > 0 && (
+        {visible.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-            {workouts.map((w) => (
-              <WorkoutCard key={w.id} workout={w} />
+            {visible.map((w) => (
+              <WorkoutCard key={w.id} workout={w} onEdit={() => openDialog(w)} />
             ))}
           </div>
         )}
       </div>
-      <AddWorkoutDialog key={session} dateIso={day.iso} open={open} onOpenChange={setOpen} />
+      <WorkoutDialog
+        key={session}
+        dateIso={day.iso}
+        workout={editing}
+        open={open}
+        onOpenChange={setOpen}
+        onOptimistic={applyOptimistic}
+      />
     </>
   );
 }
