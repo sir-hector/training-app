@@ -15,6 +15,13 @@
       "when": 1792681920790,
       "tag": "0001_workouts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792859019905,
+      "tag": "0002_workout_structure",
+      "breakpoints": true
     }
   ]
 }

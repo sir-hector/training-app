@@ -26,6 +26,7 @@ A private, calendar-based training planner. Plan workouts on a month grid, tick 
 
 - **Month calendar** with Monday-first weeks, today highlighted, and prev/next navigation (`/app?month=YYYY-MM`, so months are bookmarkable)
 - **Add workouts** to any day: nine types (gym, run, bike, intervals, tempo, long run, strength, mobility, other) plus free-text notes
+- **Structured workouts** (optional): exercises with sets, reps and weight for gym/strength; repeats with distance, time, pace and rest for intervals/tempo; target distance, duration or pace for runs and rides. Cards show a short summary such as `3 ex · 12 sets`, `6×800m` or `18 km`
 - **Mark done** straight from the calendar; done workouts fade and strike through, and the completion time is recorded
 - **Edit and delete**, including moving a workout to another date; delete asks for confirmation
 - **Stats** (`/app/stats`): this week's done / planned, the last 4 weeks' completion rate, your current weekly streak, a 12-week planned-vs-done chart (inline SVG with a table view) and a breakdown by workout type. Workouts from today on never count as missed
@@ -52,6 +53,7 @@ See [`PRD.md`](./PRD.md) for the full design record and the reasoning behind eac
 - **`src/lib/calendar-grid`**: pure function that builds the 6×7 month grid. No I/O, fully unit-tested.
 - **`src/lib/workout-stats`**: pure stats over a list of workouts: Monday-start weekly buckets, totals, completion rate and streak. "Today" is passed in, never read from the clock. Fully unit-tested.
 - **`src/lib/workout-types`**: the single source of truth for workout types: DB enum, validation, labels, colors (cards and charts) and icons.
+- **`src/lib/workout-structure`**: Zod schema, limits, `summarize()` and form-draft helpers for workout structure. Pure, so plan templates can reuse it; the matching editor is `src/components/workout-structure/structure-editor.tsx`.
 - **`src/lib/workouts-repo`**: the only module that touches the `workouts` table. **Every method takes `userId` first**, so no code path can read or change another user's data. Integration tests guard this.
 - **`src/app/app/actions.ts`**: server actions. Each resolves `auth()` first, validates with Zod, then calls the repo.
 - **`src/components/calendar`**: `MonthGrid`, `DayCell`, `WorkoutCard`, `WorkoutDialog`. Display and interaction only.

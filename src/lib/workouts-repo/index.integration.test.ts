@@ -4,9 +4,10 @@
  * them afterwards; workouts cascade.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { users, workouts } from "@/db/schema";
+import type { WorkoutStructure } from "@/lib/workout-structure";
 import { workoutsRepo } from "./index";
 
 const run = crypto.randomUUID().slice(0, 8);
@@ -141,6 +142,74 @@ describe("workoutsRepo", () => {
     const b = await workoutsRepo.create(userB, { date: "2026-07-08", type: "gym" });
     expect(await workoutsRepo.delete(userA, b.id)).toBe(false);
     expect(await workoutsRepo.findById(userB, b.id)).not.toBeNull();
+  });
+
+  it("creates without structure by default (existing behaviour unchanged)", async () => {
+    const w = await workoutsRepo.create(userA, { date: "2026-06-01", type: "run", notes: "easy" });
+    expect(w.structure).toBeNull();
+  });
+
+  it("structure round-trips through create and update; null clears it", async () => {
+    const gym: WorkoutStructure = {
+      kind: "strength",
+      exercises: [
+        {
+          name: "Squat",
+          sets: [
+            { reps: 5, weightKg: 100 },
+            { reps: 5, weightKg: 100 },
+          ],
+        },
+        { name: "Pull-up", sets: [{ reps: 8 }] },
+      ],
+    };
+    const created = await workoutsRepo.create(userA, {
+      date: "2026-06-02",
+      type: "gym",
+      structure: gym,
+    });
+    expect(created.structure).toEqual(gym);
+    expect((await workoutsRepo.findById(userA, created.id))?.structure).toEqual(gym);
+
+    const tempo: WorkoutStructure = {
+      kind: "intervals",
+      warmupMin: 15,
+      repeats: [{ count: 3, durationS: 600, targetPace: "4:05", restS: 120 }],
+    };
+    const updated = await workoutsRepo.update(userA, created.id, {
+      type: "tempo",
+      structure: tempo,
+    });
+    expect(updated?.structure).toEqual(tempo);
+
+    // Updating other fields leaves the structure alone.
+    const notesOnly = await workoutsRepo.update(userA, created.id, { notes: "felt good" });
+    expect(notesOnly?.structure).toEqual(tempo);
+
+    const cleared = await workoutsRepo.update(userA, created.id, { structure: null });
+    expect(cleared?.structure).toBeNull();
+    // Stored as SQL NULL, not a JSON null.
+    const [row] = await db
+      .select({ id: workouts.id })
+      .from(workouts)
+      .where(and(eq(workouts.id, created.id), isNull(workouts.structure)));
+    expect(row?.id).toBe(created.id);
+  });
+
+  it("CRITICAL: update cannot change another user's structure", async () => {
+    const mine: WorkoutStructure = { kind: "endurance", distanceKm: 18 };
+    const b = await workoutsRepo.create(userB, {
+      date: "2026-06-03",
+      type: "long_run",
+      structure: mine,
+    });
+    expect(await workoutsRepo.update(userA, b.id, { structure: null })).toBeNull();
+    expect(
+      await workoutsRepo.update(userA, b.id, {
+        structure: { kind: "endurance", distanceKm: 1 },
+      }),
+    ).toBeNull();
+    expect((await workoutsRepo.findById(userB, b.id))?.structure).toEqual(mine);
   });
 
   it("deleting a user cascades their workouts", async () => {
