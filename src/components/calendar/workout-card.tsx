@@ -4,6 +4,7 @@ import { useOptimistic, useTransition } from "react";
 import { Check } from "lucide-react";
 import { setWorkoutDone } from "@/app/app/actions";
 import type { Workout } from "@/db/schema";
+import { summarize } from "@/lib/workout-structure";
 import { WORKOUT_TYPE_META } from "@/lib/workout-types";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,8 @@ type Props = {
 export function WorkoutCard({ workout, onEdit }: Props) {
   const meta = WORKOUT_TYPE_META[workout.type];
   const Icon = meta.icon;
+  const summary = workout.structure ? summarize(workout.structure) : null;
+  const heading = summary ? `${meta.label} · ${summary}` : meta.label;
 
   // Flip immediately; React drops the optimistic value when the transition
   // ends and the revalidated server data (or the unchanged prop, on error)
@@ -36,7 +39,7 @@ export function WorkoutCard({ workout, onEdit }: Props) {
     <div
       data-slot="workout-card"
       data-done={done || undefined}
-      title={workout.notes ?? meta.label}
+      title={workout.notes ? `${heading}: ${workout.notes}` : heading}
       // Pointer users can tap anywhere on the card; keyboard users get the
       // labelled button below. Stop propagation so the day's "add" doesn't fire.
       onClick={(e) => {
@@ -77,7 +80,7 @@ export function WorkoutCard({ workout, onEdit }: Props) {
       </button>
       <button
         type="button"
-        aria-label={`Edit ${meta.label}${workout.notes ? `: ${workout.notes}` : ""}`}
+        aria-label={`Edit ${heading}${workout.notes ? `: ${workout.notes}` : ""}`}
         onClick={(e) => {
           e.stopPropagation();
           onEdit();
@@ -89,7 +92,10 @@ export function WorkoutCard({ workout, onEdit }: Props) {
           done && "line-through",
         )}
       >
-        {meta.label}
+        <span className="block truncate">{meta.label}</span>
+        {summary && (
+          <span className="block truncate text-[0.65rem] font-normal opacity-75">{summary}</span>
+        )}
       </button>
     </div>
   );

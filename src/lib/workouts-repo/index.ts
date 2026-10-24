@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { workouts, type Workout } from "@/db/schema";
+import type { WorkoutStructure } from "@/lib/workout-structure";
 import type { WorkoutType } from "@/lib/workout-types";
 
 export type { Workout };
@@ -10,6 +11,8 @@ export type UpdateWorkoutPatch = {
   date?: string;
   type?: WorkoutType;
   notes?: string | null;
+  /** `null` clears it; omit to leave it unchanged. Validate before calling. */
+  structure?: WorkoutStructure | null;
 };
 
 export type CreateWorkoutInput = {
@@ -17,6 +20,8 @@ export type CreateWorkoutInput = {
   date: string;
   type: WorkoutType;
   notes?: string | null;
+  /** Validate with `workout-structure` before calling. */
+  structure?: WorkoutStructure | null;
 };
 
 function normalizeNotes(notes: string | null | undefined): string | null {
@@ -41,6 +46,7 @@ export const workoutsRepo = {
         date: input.date,
         type: input.type,
         notes: normalizeNotes(input.notes),
+        structure: input.structure ?? null,
       })
       .returning();
     return row;
@@ -67,6 +73,7 @@ export const workoutsRepo = {
     if (patch.date !== undefined) set.date = patch.date;
     if (patch.type !== undefined) set.type = patch.type;
     if (patch.notes !== undefined) set.notes = normalizeNotes(patch.notes);
+    if (patch.structure !== undefined) set.structure = patch.structure;
     if (Object.keys(set).length === 0) return this.findById(userId, id);
 
     const [row] = await db

@@ -3,6 +3,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -11,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
+import type { WorkoutStructure } from "@/lib/workout-structure";
 import { WORKOUT_TYPES } from "@/lib/workout-types";
 
 // Auth.js tables. Shape follows the Drizzle adapter's expected schema:
@@ -98,6 +100,8 @@ export const workouts = pgTable(
     date: date("date", { mode: "string" }).notNull(),
     type: workoutTypeEnum("type").notNull(),
     notes: text("notes"),
+    /** Optional sets/reps, intervals or distance targets; validated by `workout-structure`. */
+    structure: jsonb("structure").$type<WorkoutStructure>(),
     done: boolean("done").notNull().default(false),
     completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
