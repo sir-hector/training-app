@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -12,6 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
+import { PLAN_MAX_WEEKS } from "@/lib/plan-dates";
 import type { WorkoutStructure } from "@/lib/workout-structure";
 import { WORKOUT_TYPES } from "@/lib/workout-types";
 
@@ -115,3 +118,62 @@ export const workouts = pgTable(
 
 export type Workout = typeof workouts.$inferSelect;
 export type NewWorkout = typeof workouts.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Plan templates: reusable multi-week programs, stamped onto the calendar.
+// ---------------------------------------------------------------------------
+
+export { PLAN_MAX_WEEKS };
+
+export const plans = pgTable(
+  "plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Length of the program, 1–26 weeks. */
+    weeks: integer("weeks").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("plans_user_id_idx").on(t.userId),
+    check("plans_weeks_range", sql`${t.weeks} between 1 and ${sql.raw(String(PLAN_MAX_WEEKS))}`),
+  ],
+);
+
+export const planDays = pgTable(
+  "plan_days",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => plans.id, { onDelete: "cascade" }),
+    /** 0-based week of the plan. */
+    weekIndex: integer("week_index").notNull(),
+    /** 0 = Monday … 6 = Sunday. */
+    dayOfWeek: integer("day_of_week").notNull(),
+    type: workoutTypeEnum("type").notNull(),
+    notes: text("notes"),
+    /** Same shape as `workouts.structure`; validated by `workout-structure`. */
+    structure: jsonb("structure").$type<WorkoutStructure>(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Not unique: a plan day can hold several workouts.
+    index("plan_days_plan_week_day_idx").on(t.planId, t.weekIndex, t.dayOfWeek),
+    check(
+      "plan_days_week_index_range",
+      sql`${t.weekIndex} between 0 and ${sql.raw(String(PLAN_MAX_WEEKS - 1))}`,
+    ),
+    check("plan_days_day_of_week_range", sql`${t.dayOfWeek} between 0 and 6`),
+  ],
+);
+
+export type Plan = typeof plans.$inferSelect;
+export type PlanDay = typeof planDays.$inferSelect;

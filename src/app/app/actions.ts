@@ -3,12 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
-import {
-  parseStructure,
-  type StructureErrors,
-  type WorkoutStructure,
-} from "@/lib/workout-structure";
-import { WORKOUT_TYPES, structureKindOf } from "@/lib/workout-types";
+import { parseWorkoutForm, type WorkoutFormError } from "@/lib/workout-form";
+import { WORKOUT_TYPES } from "@/lib/workout-types";
 import { workoutsRepo } from "@/lib/workouts-repo";
 
 const createWorkoutSchema = z.object({
@@ -21,85 +17,8 @@ const updateWorkoutSchema = createWorkoutSchema.extend({
   workoutId: z.uuid(),
 });
 
-type FieldName = "date" | "type" | "notes" | "structure";
-type FieldErrors = Partial<Record<FieldName, string>>;
-
-function fieldErrorsFrom<T extends { date: unknown; type: unknown; notes?: unknown }>(
-  error: z.ZodError<T>,
-): FieldErrors {
-  const flat = z.flattenError(error);
-  return {
-    date: flat.fieldErrors.date?.[0],
-    type: flat.fieldErrors.type?.[0],
-    notes: flat.fieldErrors.notes?.[0],
-  };
-}
-
 export type CreateWorkoutState =
-  | { status: "idle" }
-  | {
-      status: "error";
-      message: string;
-      fieldErrors?: FieldErrors;
-      /** Per-input errors inside the structure editor, keyed by path. */
-      structureErrors?: StructureErrors;
-    }
-  | { status: "success"; workoutId: string };
-
-type ParsedForm<T> =
-  | { ok: true; data: T & { structure: WorkoutStructure | null } }
-  | { ok: false; state: CreateWorkoutState };
-
-/**
- * Validate the base fields with `schema`, then the hidden `structure` JSON
- * field against the type's `structureKind`. Missing or empty structure means
- * none (the dialog always sends the field, so an edit can clear it).
- */
-function parseWorkoutForm<
-  S extends z.ZodType<{ date: string; type: (typeof WORKOUT_TYPES)[number]; notes?: string }>,
->(
-  schema: S,
-  input: Record<string, unknown>,
-  rawStructure: FormDataEntryValue | null,
-): ParsedForm<z.infer<S>> {
-  const parsed = schema.safeParse(input);
-  const fieldErrors: FieldErrors = parsed.success ? {} : fieldErrorsFrom(parsed.error);
-
-  let structureJson: unknown = null;
-  let structureErrors: StructureErrors | undefined;
-  if (typeof rawStructure === "string" && rawStructure.trim() !== "") {
-    try {
-      structureJson = JSON.parse(rawStructure);
-    } catch {
-      fieldErrors.structure = "Workout details are malformed.";
-    }
-  }
-
-  let structure: WorkoutStructure | null = null;
-  // Only check structure against the type once the type itself is valid.
-  if (parsed.success && !fieldErrors.structure) {
-    const result = parseStructure(structureJson, structureKindOf(parsed.data.type));
-    if (result.ok) {
-      structure = result.structure;
-    } else {
-      fieldErrors.structure = result.message;
-      structureErrors = result.errors;
-    }
-  }
-
-  if (!parsed.success || fieldErrors.structure) {
-    return {
-      ok: false,
-      state: {
-        status: "error",
-        message: "Please fix the highlighted fields.",
-        fieldErrors,
-        structureErrors,
-      },
-    };
-  }
-  return { ok: true, data: { ...parsed.data, structure } };
-}
+  { status: "idle" } | WorkoutFormError | { status: "success"; workoutId: string };
 
 export async function createWorkout(
   _prev: CreateWorkoutState,
@@ -119,7 +38,7 @@ export async function createWorkout(
     },
     formData.get("structure"),
   );
-  if (!parsed.ok) return parsed.state;
+  if (!parsed.ok) return parsed.error;
 
   const workout = await workoutsRepo.create(session.user.id, parsed.data);
   revalidatePath("/app");
@@ -177,7 +96,7 @@ export async function updateWorkout(
     },
     formData.get("structure"),
   );
-  if (!parsed.ok) return parsed.state;
+  if (!parsed.ok) return parsed.error;
 
   const { workoutId, ...patch } = parsed.data;
   const updated = await workoutsRepo.update(session.user.id, workoutId, {

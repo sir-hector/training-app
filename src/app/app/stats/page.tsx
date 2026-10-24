@@ -1,15 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { format } from "date-fns";
-import { CalendarDays } from "lucide-react";
 import { auth } from "@/auth";
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { AppNav } from "@/components/app-nav";
 import { StatTile } from "@/components/stats/stat-tile";
 import { TypeBreakdown } from "@/components/stats/type-breakdown";
 import { WeeklyChart } from "@/components/stats/weekly-chart";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { computeWorkoutStats, lastWeeksRange, totalsOf } from "@/lib/workout-stats";
 import { workoutsRepo } from "@/lib/workouts-repo";
 
@@ -41,15 +37,7 @@ export default async function StatsPage() {
     <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-6 px-3 py-4 sm:p-8">
       <header className="flex items-center justify-between gap-2">
         <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">Stats</h1>
-        <nav className="flex items-center gap-2" aria-label="Main">
-          {/* A real link (not role="button"): this is navigation. cn() resolves the
-              conflicting border classes buttonVariants emits, as Button does. */}
-          <Link href="/app" className={cn(buttonVariants({ variant: "outline" }))}>
-            <CalendarDays data-icon="inline-start" aria-hidden />
-            Calendar
-          </Link>
-          <SignOutButton />
-        </nav>
+        <AppNav current="stats" />
       </header>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-4">

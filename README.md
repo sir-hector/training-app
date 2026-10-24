@@ -27,6 +27,7 @@ A private, calendar-based training planner. Plan workouts on a month grid, tick 
 - **Month calendar** with Monday-first weeks, today highlighted, and prev/next navigation (`/app?month=YYYY-MM`, so months are bookmarkable)
 - **Add workouts** to any day: nine types (gym, run, bike, intervals, tempo, long run, strength, mobility, other) plus free-text notes
 - **Structured workouts** (optional): exercises with sets, reps and weight for gym/strength; repeats with distance, time, pace and rest for intervals/tempo; target distance, duration or pace for runs and rides. Cards show a short summary such as `3 ex · 12 sets`, `6×800m` or `18 km`
+- **Plan templates** (`/app/plans`): build a reusable multi-week program (1–26 weeks) on a week-by-week grid, with the same type, notes and structure fields as calendar workouts and several workouts per day if you like. **Apply to calendar** picks a start date (snapped to that week's Monday), previews the date range and workout count, then adds every workout in one atomic insert and links to that month
 - **Mark done** straight from the calendar; done workouts fade and strike through, and the completion time is recorded
 - **Edit and delete**, including moving a workout to another date; delete asks for confirmation
 - **Stats** (`/app/stats`): this week's done / planned, the last 4 weeks' completion rate, your current weekly streak, a 12-week planned-vs-done chart (inline SVG with a table view) and a breakdown by workout type. Workouts from today on never count as missed
@@ -54,9 +55,13 @@ See [`PRD.md`](./PRD.md) for the full design record and the reasoning behind eac
 - **`src/lib/workout-stats`**: pure stats over a list of workouts: Monday-start weekly buckets, totals, completion rate and streak. "Today" is passed in, never read from the clock. Fully unit-tested.
 - **`src/lib/workout-types`**: the single source of truth for workout types: DB enum, validation, labels, colors (cards and charts) and icons.
 - **`src/lib/workout-structure`**: Zod schema, limits, `summarize()` and form-draft helpers for workout structure. Pure, so plan templates can reuse it; the matching editor is `src/components/workout-structure/structure-editor.tsx`.
+- **`src/lib/plan-dates`**: pure date math for plans: Monday validation and snapping, `start + weekIndex × 7 + dayOfWeek`, and the covered range. UTC arithmetic, fully unit-tested.
+- **`src/lib/workout-form`**: pure server-side parsing of a workout form (type, notes, structure JSON), shared by the calendar and plan-day actions.
+- **`src/lib/plans-repo`**: the only module that touches `plans` and `plan_days`. Same rule as `workouts-repo`: **every method takes `userId` first**; plan days are scoped through their plan, and someone else's plan behaves as missing. `applyToCalendar` writes all workouts in a single multi-row `INSERT`, so it's all or nothing (the `neon-http` driver has no interactive transactions; shrinking a plan uses `db.batch`, which runs in one transaction).
 - **`src/lib/workouts-repo`**: the only module that touches the `workouts` table. **Every method takes `userId` first**, so no code path can read or change another user's data. Integration tests guard this.
-- **`src/app/app/actions.ts`**: server actions. Each resolves `auth()` first, validates with Zod, then calls the repo.
+- **`src/app/app/actions.ts`** and **`src/app/app/plans/actions.ts`**: server actions. Each resolves `auth()` first, validates with Zod, then calls the repo.
 - **`src/components/calendar`**: `MonthGrid`, `DayCell`, `WorkoutCard`, `WorkoutDialog`. Display and interaction only.
+- **`src/components/plans`**: `PlanGrid` (week-by-week editor), `PlanDayDialog`, `PlanSettings`, `ApplyPlanDialog`, `CreatePlanForm`. `src/components/workout-form` holds the type/notes/structure fields both dialogs share; `src/components/app-nav.tsx` is the header navigation.
 - **`src/components/stats`**: `StatTile`, `WeeklyChart` (server-rendered SVG, no chart library), `TypeBreakdown`.
 
 ## Local development
@@ -107,9 +112,9 @@ Commit the generated migration. CI applies it to a throwaway Neon branch for eve
 
 ## Testing
 
-- **Unit** (`npm test`): the calendar grid (padding days, Monday-start months, leap years, year boundaries) and workout stats (week bucketing across month and year boundaries, completion rate, future workouts never missed, streaks).
-- **Integration** (`npm run test:integration`): `workouts-repo` against a real Postgres. Round-trips, done/undone timestamps, and **cross-user isolation**: user A can never list, update, toggle or delete user B's workouts.
-- **End-to-end** (`npm run test:e2e`): Playwright drives the golden path on desktop and a phone viewport. It opens the calendar, adds a workout through the dialog, marks it done, reloads, and checks it's still done. A second spec seeds done and not-done workouts and checks the stats tiles, weekly table and type breakdown. Both check that anonymous visitors are redirected.
+- **Unit** (`npm test`): the calendar grid (padding days, Monday-start months, leap years, year boundaries) workout stats (week bucketing across month and year boundaries, completion rate, future workouts never missed, streaks), plan date math (Monday snapping, leap days, DST weeks) and workout form parsing.
+- **Integration** (`npm run test:integration`): `workouts-repo` against a real Postgres. Round-trips, done/undone timestamps, and **cross-user isolation**: user A can never list, update, toggle or delete user B's workouts. `plans-repo`: plan CRUD, shrinking a plan, several workouts per day, `applyToCalendar` creating the right dates, types, notes and structures, and cross-user refusal for every method, including applying someone else's plan (nothing is inserted).
+- **End-to-end** (`npm run test:e2e`): Playwright drives the golden path on desktop and a phone viewport. It opens the calendar, adds a workout through the dialog, marks it done, reloads, and checks it's still done. A second spec seeds done and not-done workouts and checks the stats tiles, weekly table and type breakdown. The plans spec builds a 2-week plan with three workouts, applies it from a Wednesday (snapped to Monday 2 Feb 2032) and checks each workout landed on the right calendar day. Both check that anonymous visitors are redirected.
 
   Google's consent screen can't run in CI, so the test creates a user and a database session directly and sets the session cookie. That's exactly the state Auth.js produces after a real Google callback, so no test-only code ships to production. See `e2e/test-user.ts`.
 
@@ -181,17 +186,25 @@ src/
     page.tsx              # Landing / sign-in
     app/                  # Protected calendar (page + server actions)
       stats/              # Protected stats page
+      plans/              # Plan list, plan editor ([id]), plan server actions
     api/auth/             # Auth.js route handler
   auth.ts                 # Auth.js config: auth(), signIn, signOut
   proxy.ts                # Route guard for /app/* (optimistic; pages re-check)
   db/                     # Drizzle client + schema
   lib/
     calendar-grid/        # Pure month-grid builder + unit tests
+    plan-dates/           # Pure plan date math (Monday start, day offsets) + unit tests
+    plans-repo/           # User-scoped plan templates + integration tests
+    workout-form/         # Shared server-side workout form parsing + unit tests
     workout-stats/        # Pure weekly stats, completion rate, streak + unit tests
     workout-types/        # Workout type metadata (single source of truth)
     workouts-repo/        # User-scoped data access + integration tests
+    workout-structure/    # Structure schema, summaries, form drafts
   components/
     calendar/             # MonthGrid, DayCell, WorkoutCard, WorkoutDialog
+    plans/                # PlanGrid, PlanDayDialog, PlanSettings, ApplyPlanDialog
+    workout-form/         # Type/notes/structure fields shared by both dialogs
+    workout-structure/    # StructureEditor
     stats/                # StatTile, WeeklyChart, TypeBreakdown
     ui/                   # shadcn primitives
 e2e/                      # Playwright golden path + session seeding

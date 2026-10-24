@@ -29,11 +29,16 @@ export async function createTestSession(): Promise<string> {
 }
 
 export async function deleteTestUser(): Promise<void> {
-  // Sessions and workouts cascade.
+  // Sessions, workouts and plans cascade.
   await sql()`delete from users where id = ${E2E_USER_ID}`;
 }
 
 /** Start each test from an empty calendar for the e2e user. */
 export async function clearTestWorkouts(): Promise<void> {
   await sql()`delete from workouts where user_id = ${E2E_USER_ID}`;
+}
+
+/** Start each plans test with no plans for the e2e user (plan days cascade). */
+export async function clearTestPlans(): Promise<void> {
+  await sql()`delete from plans where user_id = ${E2E_USER_ID}`;
 }
