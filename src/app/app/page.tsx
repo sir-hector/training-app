@@ -1,13 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { format } from "date-fns";
-import { ChartColumn } from "lucide-react";
 import { auth } from "@/auth";
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { AppNav } from "@/components/app-nav";
 import { MonthGrid } from "@/components/calendar/month-grid";
 import { MonthNav } from "@/components/calendar/month-nav";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getMonthGrid } from "@/lib/calendar-grid";
 import { workoutsRepo } from "@/lib/workouts-repo";
 
@@ -51,15 +47,7 @@ export default async function AppPage({
     <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-5 px-3 py-4 sm:p-8">
       <header className="flex items-center justify-between gap-2">
         <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">Training</h1>
-        <nav className="flex items-center gap-2" aria-label="Main">
-          {/* A real link (not role="button"): this is navigation. cn() resolves the
-              conflicting border classes buttonVariants emits, as Button does. */}
-          <Link href="/app/stats" className={cn(buttonVariants({ variant: "outline" }))}>
-            <ChartColumn data-icon="inline-start" aria-hidden />
-            Stats
-          </Link>
-          <SignOutButton />
-        </nav>
+        <AppNav current="calendar" />
       </header>
       <MonthNav year={year} month={month} />
       <MonthGrid grid={grid} todayIso={format(now, "yyyy-MM-dd")} workouts={workouts} />

@@ -30,28 +30,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { StructureEditor } from "@/components/workout-structure/structure-editor";
-import {
-  draftFromStructure,
-  isDraftEmpty,
-  structureFromDraft,
-  workoutStructureSchema,
-  type StructureDraft,
-} from "@/lib/workout-structure";
-import {
-  WORKOUT_TYPES,
-  WORKOUT_TYPE_META,
-  structureKindOf,
-  type WorkoutType,
-} from "@/lib/workout-types";
+import { useWorkoutFields, WorkoutFields } from "@/components/workout-form/workout-fields";
+import { workoutStructureSchema } from "@/lib/workout-structure";
+import { WORKOUT_TYPE_META, type WorkoutType } from "@/lib/workout-types";
 
 const initial: CreateWorkoutState = { status: "idle" };
 
@@ -67,9 +48,6 @@ function optimisticStructure(raw: FormDataEntryValue | null, fallback: Workout["
     return fallback;
   }
 }
-
-// Lets the select trigger show "Long run" rather than the raw "long_run".
-const TYPE_ITEMS = WORKOUT_TYPES.map((t) => ({ value: t, label: WORKOUT_TYPE_META[t].label }));
 
 export type OptimisticChange =
   { kind: "update"; workout: Workout } | { kind: "delete"; id: string };
@@ -91,27 +69,9 @@ type Props = {
  */
 export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimistic }: Props) {
   const editing = workout !== undefined;
-  const [type, setType] = useState<WorkoutType | null>(workout?.type ?? null);
-  const [draft, setDraft] = useState<StructureDraft | null>(() =>
-    workout?.structure ? draftFromStructure(workout.structure) : null,
+  const fields = useWorkoutFields(
+    workout ? { type: workout.type, structure: workout.structure } : undefined,
   );
-  // Explains why details disappeared after switching to an incompatible type.
-  const [notice, setNotice] = useState<string | null>(null);
-  const structureKind = type ? structureKindOf(type) : null;
-
-  const changeType = (next: WorkoutType | null) => {
-    const nextKind = next ? structureKindOf(next) : null;
-    if (draft && draft.kind !== nextKind && type) {
-      setDraft(null);
-      if (!isDraftEmpty(draft))
-        setNotice(
-          `${WORKOUT_TYPE_META[type].label} details were removed: ${
-            next ? WORKOUT_TYPE_META[next].label : "this type"
-          } ${nextKind ? "uses a different format" : "doesn't take details"}.`,
-        );
-    }
-    setType(next);
-  };
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, startDelete] = useTransition();
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -154,7 +114,6 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
 
   const errors = state.status === "error" ? state.fieldErrors : undefined;
   const structureErrors = state.status === "error" ? state.structureErrors : undefined;
-  const structureJson = JSON.stringify(structureFromDraft(structureKind ? draft : null));
   const busy = pending || deleting;
   const displayDate = workout?.date ?? dateIso;
 
@@ -164,7 +123,7 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
         <form action={formAction} className="contents">
           {workout && <input type="hidden" name="workoutId" value={workout.id} />}
           {!editing && <input type="hidden" name="date" value={dateIso} />}
-          <input type="hidden" name="structure" value={structureJson} />
+          <input type="hidden" name="structure" value={fields.structureJson} />
           <DialogHeader>
             <DialogTitle>{editing ? "Edit workout" : "Add workout"}</DialogTitle>
             <DialogDescription>
@@ -191,73 +150,14 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
                 </Field>
               )}
 
-              <Field data-invalid={errors?.type ? true : undefined}>
-                <FieldLabel htmlFor="workout-type">Type</FieldLabel>
-                <Select
-                  items={TYPE_ITEMS}
-                  name="type"
-                  value={type}
-                  onValueChange={(v) => changeType(v as WorkoutType | null)}
-                  required
-                >
-                  <SelectTrigger id="workout-type" aria-invalid={!!errors?.type}>
-                    <SelectValue placeholder="Pick a type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {WORKOUT_TYPES.map((t) => {
-                      const Icon = WORKOUT_TYPE_META[t].icon;
-                      return (
-                        <SelectItem key={t} value={t}>
-                          <Icon className="size-4" aria-hidden />
-                          {WORKOUT_TYPE_META[t].label}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-                {errors?.type && <FieldError>{errors.type}</FieldError>}
-              </Field>
-
-              <Field data-invalid={errors?.notes ? true : undefined}>
-                <FieldLabel htmlFor="workout-notes">Notes</FieldLabel>
-                <Textarea
-                  id="workout-notes"
-                  name="notes"
-                  placeholder="e.g. 5 × 1000m @ 4:00, 90s rest"
-                  rows={3}
-                  maxLength={2000}
-                  defaultValue={workout?.notes ?? ""}
-                />
-                {errors?.notes && <FieldError>{errors.notes}</FieldError>}
-              </Field>
-
-              {structureKind ? (
-                <div className="flex flex-col gap-2">
-                  <StructureEditor
-                    kind={structureKind}
-                    value={draft}
-                    onChange={(next) => {
-                      setDraft(next);
-                      setNotice(null);
-                    }}
-                    errors={structureErrors}
-                    notice={notice}
-                    disabled={busy}
-                  />
-                  {errors?.structure && !structureErrors?.[""] && (
-                    <FieldError>{errors.structure}</FieldError>
-                  )}
-                </div>
-              ) : (
-                notice && (
-                  <p
-                    role="status"
-                    className="text-muted-foreground bg-muted rounded-md px-2.5 py-1.5 text-xs"
-                  >
-                    {notice}
-                  </p>
-                )
-              )}
+              <WorkoutFields
+                idPrefix="workout"
+                fields={fields}
+                defaultNotes={workout?.notes}
+                errors={errors}
+                structureErrors={structureErrors}
+                disabled={busy}
+              />
             </FieldGroup>
 
             {state.status === "error" && !errors && (
@@ -290,7 +190,7 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={busy || !type}>
+              <Button type="submit" disabled={busy || !fields.type}>
                 {editing ? <Save data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
                 {pending ? "Saving…" : editing ? "Save changes" : "Add workout"}
               </Button>
