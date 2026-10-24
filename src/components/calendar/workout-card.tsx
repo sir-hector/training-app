@@ -47,7 +47,7 @@ export function WorkoutCard({ workout, onEdit }: Props) {
         onEdit();
       }}
       className={cn(
-        "cursor-pointer hover:brightness-95",
+        "group/card cursor-pointer hover:brightness-95",
         "flex min-w-0 items-center gap-1 rounded-md px-0.5 py-0.5 text-[0.65rem] leading-tight font-medium transition-opacity sm:px-1 sm:text-xs",
         meta.cardClass,
         done && "opacity-55",
@@ -59,6 +59,7 @@ export function WorkoutCard({ workout, onEdit }: Props) {
         aria-checked={done}
         aria-label={done ? `Mark ${meta.label} as not done` : `Mark ${meta.label} as done`}
         aria-busy={pending || undefined}
+        title={done ? "Mark as not done" : "Mark as done"}
         // Don't let the click bubble to the day cell (which opens the dialog).
         onClick={(e) => {
           e.stopPropagation();
@@ -69,15 +70,31 @@ export function WorkoutCard({ workout, onEdit }: Props) {
           "focus-visible:ring-ring/60 relative grid size-3.5 shrink-0 place-items-center rounded-full border border-current outline-none focus-visible:ring-2 sm:size-4",
           // Enlarge the hit area beyond the visual circle for touch.
           "after:absolute after:-inset-1.5 after:content-['']",
-          done && "bg-current",
+          // Mouse/trackpad: sit on the right and appear on hover or focus.
+          // Once done it stays visible so the state is readable at a glance.
+          // Touch screens can't hover, so there it stays put on the left.
+          "pointer-fine:order-last pointer-fine:transition-opacity",
+          !done &&
+            "pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 pointer-fine:focus-visible:opacity-100",
+          done ? "bg-current" : "pointer-fine:hover:bg-current/15",
         )}
       >
         {done ? (
           <Check className="text-background size-2.5 sm:size-3" strokeWidth={3} aria-hidden />
         ) : (
-          <Icon className="size-2 sm:size-2.5" aria-hidden />
+          <>
+            {/* Touch: the circle doubles as the type icon. */}
+            <Icon className="size-2 sm:size-2.5 pointer-fine:hidden" aria-hidden />
+            {/* Mouse: an outlined check hints at what clicking does. */}
+            <Check
+              className="hidden size-2.5 sm:size-3 pointer-fine:block"
+              strokeWidth={3}
+              aria-hidden
+            />
+          </>
         )}
       </button>
+      <Icon className="hidden size-3 shrink-0 sm:size-3.5 pointer-fine:block" aria-hidden />
       <button
         type="button"
         aria-label={`Edit ${heading}${workout.notes ? `: ${workout.notes}` : ""}`}
