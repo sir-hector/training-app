@@ -34,7 +34,7 @@ export function MonthNav({ year, month }: { year: number; month: number }) {
       >
         <ChevronLeft />
       </Button>
-      <h2 className="text-lg font-semibold tracking-tight tabular-nums">
+      <h2 className="font-heading text-lg font-semibold tracking-tight tabular-nums sm:text-xl">
         {MONTHS[month - 1]} {year}
       </h2>
       <Button
