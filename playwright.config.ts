@@ -28,7 +28,9 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: isCI ? `npm run start -- -p ${PORT}` : "npm run dev",
+        // Pass the port explicitly so parallel checkouts (git worktrees) can
+        // each run their own server via E2E_PORT without reusing another's.
+        command: isCI ? `npm run start -- -p ${PORT}` : `npm run dev -- -p ${PORT}`,
         url: baseURL,
         reuseExistingServer: !isCI,
         timeout: 120_000,
