@@ -28,6 +28,7 @@ A private, calendar-based training planner. Plan workouts on a month grid, tick 
 - **Add workouts** to any day: nine types (gym, run, bike, intervals, tempo, long run, strength, mobility, other) plus free-text notes
 - **Mark done** straight from the calendar; done workouts fade and strike through, and the completion time is recorded
 - **Edit and delete**, including moving a workout to another date; delete asks for confirmation
+- **Stats** (`/app/stats`): this week's done / planned, the last 4 weeks' completion rate, your current weekly streak, a 12-week planned-vs-done chart (inline SVG with a table view) and a breakdown by workout type. Workouts from today on never count as missed
 - **Optimistic UI**: changes appear instantly and reconcile with the server
 - **Google sign-in** with database sessions; every query is scoped to the signed-in user
 
@@ -49,10 +50,12 @@ See [`PRD.md`](./PRD.md) for the full design record and the reasoning behind eac
 ### How the code is organised
 
 - **`src/lib/calendar-grid`**: pure function that builds the 6×7 month grid. No I/O, fully unit-tested.
-- **`src/lib/workout-types`**: the single source of truth for workout types: DB enum, validation, labels, colors and icons.
+- **`src/lib/workout-stats`**: pure stats over a list of workouts: Monday-start weekly buckets, totals, completion rate and streak. "Today" is passed in, never read from the clock. Fully unit-tested.
+- **`src/lib/workout-types`**: the single source of truth for workout types: DB enum, validation, labels, colors (cards and charts) and icons.
 - **`src/lib/workouts-repo`**: the only module that touches the `workouts` table. **Every method takes `userId` first**, so no code path can read or change another user's data. Integration tests guard this.
 - **`src/app/app/actions.ts`**: server actions. Each resolves `auth()` first, validates with Zod, then calls the repo.
 - **`src/components/calendar`**: `MonthGrid`, `DayCell`, `WorkoutCard`, `WorkoutDialog`. Display and interaction only.
+- **`src/components/stats`**: `StatTile`, `WeeklyChart` (server-rendered SVG, no chart library), `TypeBreakdown`.
 
 ## Local development
 
@@ -102,9 +105,9 @@ Commit the generated migration. CI applies it to a throwaway Neon branch for eve
 
 ## Testing
 
-- **Unit** (`npm test`): the calendar grid: padding days, Monday-start months, leap years, year boundaries.
+- **Unit** (`npm test`): the calendar grid (padding days, Monday-start months, leap years, year boundaries) and workout stats (week bucketing across month and year boundaries, completion rate, future workouts never missed, streaks).
 - **Integration** (`npm run test:integration`): `workouts-repo` against a real Postgres. Round-trips, done/undone timestamps, and **cross-user isolation**: user A can never list, update, toggle or delete user B's workouts.
-- **End-to-end** (`npm run test:e2e`): Playwright drives the golden path on desktop and a phone viewport. It opens the calendar, adds a workout through the dialog, marks it done, reloads, and checks it's still done. It also checks that anonymous visitors are redirected.
+- **End-to-end** (`npm run test:e2e`): Playwright drives the golden path on desktop and a phone viewport. It opens the calendar, adds a workout through the dialog, marks it done, reloads, and checks it's still done. A second spec seeds done and not-done workouts and checks the stats tiles, weekly table and type breakdown. Both check that anonymous visitors are redirected.
 
   Google's consent screen can't run in CI, so the test creates a user and a database session directly and sets the session cookie. That's exactly the state Auth.js produces after a real Google callback, so no test-only code ships to production. See `e2e/test-user.ts`.
 
@@ -175,16 +178,19 @@ src/
   app/
     page.tsx              # Landing / sign-in
     app/                  # Protected calendar (page + server actions)
+      stats/              # Protected stats page
     api/auth/             # Auth.js route handler
   auth.ts                 # Auth.js config: auth(), signIn, signOut
   proxy.ts                # Route guard for /app/* (optimistic; pages re-check)
   db/                     # Drizzle client + schema
   lib/
     calendar-grid/        # Pure month-grid builder + unit tests
+    workout-stats/        # Pure weekly stats, completion rate, streak + unit tests
     workout-types/        # Workout type metadata (single source of truth)
     workouts-repo/        # User-scoped data access + integration tests
   components/
     calendar/             # MonthGrid, DayCell, WorkoutCard, WorkoutDialog
+    stats/                # StatTile, WeeklyChart, TypeBreakdown
     ui/                   # shadcn primitives
 e2e/                      # Playwright golden path + session seeding
 drizzle/                  # SQL migrations (generated, checked in)
