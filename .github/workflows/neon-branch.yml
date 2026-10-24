@@ -10,10 +10,10 @@ concurrency:
 
 jobs:
   create:
-    name: Create branch + migrate + integration tests
+    name: Create branch + migrate + integration + e2e tests
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +46,45 @@ jobs:
         run: npm run test:integration
         env:
           DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
+
+      # --- End-to-end: production build served on the runner, backed by the
+      # PR's Neon branch. Google sign-in is bypassed by seeding a DB session
+      # (see e2e/test-user.ts), so the OAuth values below are placeholders.
+      - name: Generate throwaway auth secret
+        run: echo "AUTH_SECRET=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
+
+      - name: E2E tests
+        run: npm run test:e2e
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
+          AUTH_URL: http://localhost:3000
+          AUTH_TRUST_HOST: "true"
+          AUTH_GOOGLE_ID: e2e-placeholder
+          AUTH_GOOGLE_SECRET: e2e-placeholder
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
 
   delete:
     name: Delete branch

@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Geist } from "next/font/google";
+import { Bricolage_Grotesque } from "next/font/google";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+// One typeface for the whole app. The optical-size axis keeps the small
+// calendar numerals crisp while headings get the full grotesque character.
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin", "latin-ext"],
+  variable: "--font-sans",
+  axes: ["opsz", "wdth"],
+});
 
 export const metadata: Metadata = {
   title: "Training App",
@@ -16,7 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn("font-sans", geist.variable)}>
+    <html lang="en" className={cn("font-sans", bricolage.variable)}>
       <body className="bg-background text-foreground min-h-svh antialiased">{children}</body>
     </html>
   );

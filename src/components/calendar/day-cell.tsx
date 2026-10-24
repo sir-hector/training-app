@@ -57,21 +57,21 @@ export function DayCell({ day, isToday, workouts }: Props) {
           }
         }}
         className={cn(
-          "bg-card hover:bg-muted focus-visible:ring-ring/50 flex aspect-square min-h-12 cursor-pointer flex-col gap-1 rounded-lg border p-1.5 transition-colors outline-none focus-visible:ring-3 sm:aspect-[5/4] sm:p-2",
+          "bg-card hover:bg-muted focus-visible:ring-ring/50 flex min-h-14 cursor-pointer flex-col gap-1 rounded-lg border p-1 transition-colors outline-none focus-visible:ring-3 sm:min-h-24 sm:p-2",
           !day.inMonth && "text-muted-foreground/50 bg-transparent",
-          isToday && "border-primary",
+          isToday && "border-brand ring-brand/25 ring-2",
         )}
       >
         <span
           className={cn(
             "inline-flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium tabular-nums sm:text-sm",
-            isToday && "bg-primary text-primary-foreground",
+            isToday && "bg-brand text-brand-foreground",
           )}
         >
           {day.day}
         </span>
         {visible.length > 0 && (
-          <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+          <div className="flex min-w-0 flex-col gap-0.5">
             {visible.map((w) => (
               <WorkoutCard key={w.id} workout={w} onEdit={() => openDialog(w)} />
             ))}

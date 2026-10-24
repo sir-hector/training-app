@@ -44,9 +44,9 @@ export default async function AppPage({
   );
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-5 p-4 sm:p-8">
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-5 px-3 py-4 sm:p-8">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
+        <h1 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">Training</h1>
         <SignOutButton />
       </header>
       <MonthNav year={year} month={month} />

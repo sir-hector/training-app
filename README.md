@@ -1,46 +1,75 @@
 # Training App
 
-A private, calendar-based training planner. Personal side project — see [`PRD.md`](./PRD.md) for the full design record.
+[![CI](https://github.com/sir-hector/training-app/actions/workflows/ci.yml/badge.svg)](https://github.com/sir-hector/training-app/actions/workflows/ci.yml)
+[![Deploy](https://github.com/sir-hector/training-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/sir-hector/training-app/actions/workflows/deploy.yml)
+[![E2E on Neon branch](https://github.com/sir-hector/training-app/actions/workflows/neon-branch.yml/badge.svg)](https://github.com/sir-hector/training-app/actions/workflows/neon-branch.yml)
 
-> **Status:** v1 — auth + database wired (Google sign-in, Neon Postgres, Drizzle). Calendar features in progress. See open issues on GitHub.
+A private, calendar-based training planner. Plan workouts on a month grid, tick them off as you do them, and check your plan from any device.
+
+**Try it live: [training-app-hector.fly.dev](https://training-app-hector.fly.dev)** (sign in with Google; your calendar is private to your account).
+
+![Calendar with a two-week training block](docs/screenshots/calendar-populated.png)
+
+| Dark mode follows your OS                        | Editing a workout                                | On a phone                                      |
+| ------------------------------------------------ | ------------------------------------------------ | ----------------------------------------------- |
+| ![Dark mode](docs/screenshots/calendar-dark.png) | ![Edit dialog](docs/screenshots/edit-dialog.png) | ![Mobile](docs/screenshots/calendar-mobile.png) |
+
+<details>
+<summary>Empty month and sign-in screen</summary>
+
+![Empty month](docs/screenshots/calendar-empty.png)
+![Sign in](docs/screenshots/sign-in.png)
+
+</details>
+
+## Features
+
+- **Month calendar** with Monday-first weeks, today highlighted, and prev/next navigation (`/app?month=YYYY-MM`, so months are bookmarkable)
+- **Add workouts** to any day: nine types (gym, run, bike, intervals, tempo, long run, strength, mobility, other) plus free-text notes
+- **Mark done** straight from the calendar; done workouts fade and strike through, and the completion time is recorded
+- **Edit and delete**, including moving a workout to another date; delete asks for confirmation
+- **Optimistic UI**: changes appear instantly and reconcile with the server
+- **Google sign-in** with database sessions; every query is scoped to the signed-in user
+
+See [`PRD.md`](./PRD.md) for the full design record and the reasoning behind each choice.
 
 ## Stack
 
-- **Next.js 16** (App Router) + **React 19** + **TypeScript**
-- **Tailwind CSS v4** + **shadcn/ui**
-- **Auth.js v5** with Google OAuth and database sessions
-- **Neon Postgres** + **Drizzle ORM** (migrations checked in under `drizzle/`)
-- **Sentry** for error tracking
-- **Fly.io** for hosting (Docker, standalone Next.js output)
-- **GitHub Actions** for CI (typecheck + lint + format) and prod deploys
+| Layer         | Choice                                                                           |
+| ------------- | -------------------------------------------------------------------------------- |
+| Framework     | **Next.js 16** (App Router, Server Actions) + **React 19** + **TypeScript**      |
+| UI            | **Tailwind CSS v4** + **shadcn/ui** on Base UI; **Bricolage Grotesque** typeface |
+| Auth          | **Auth.js v5**, Google OAuth, database sessions                                  |
+| Database      | **Neon Postgres** (serverless) + **Drizzle ORM**, migrations checked in          |
+| Testing       | **Vitest** (unit + integration against a real Neon branch), **Playwright** (e2e) |
+| Hosting       | **Fly.io** (Docker, standalone Next.js output)                                   |
+| CI/CD         | **GitHub Actions**: checks on every PR, a Neon branch per PR, deploy on merge    |
+| Observability | **Sentry**                                                                       |
 
-The full stack decisions and the reasoning behind each choice are in [`PRD.md`](./PRD.md).
+### How the code is organised
+
+- **`src/lib/calendar-grid`**: pure function that builds the 6×7 month grid. No I/O, fully unit-tested.
+- **`src/lib/workout-types`**: the single source of truth for workout types: DB enum, validation, labels, colors and icons.
+- **`src/lib/workouts-repo`**: the only module that touches the `workouts` table. **Every method takes `userId` first**, so no code path can read or change another user's data. Integration tests guard this.
+- **`src/app/app/actions.ts`**: server actions. Each resolves `auth()` first, validates with Zod, then calls the repo.
+- **`src/components/calendar`**: `MonthGrid`, `DayCell`, `WorkoutCard`, `WorkoutDialog`. Display and interaction only.
 
 ## Local development
 
-Requirements: **Node.js 22**, **npm 10**.
+Requirements: **Node.js 22**, **npm 10**, a free [Neon](https://neon.tech) project, and a Google OAuth client.
 
 ```bash
-# 1. Install
 npm install
-
-# 2. Copy env template and fill it in (see comments inside)
-cp .env.example .env.local
-
-# 3. Apply migrations to your Neon branch
-npm run db:migrate
-
-# 4. Start the dev server
-npm run dev
+cp .env.example .env.local   # fill it in, see below
+npm run db:migrate           # create tables on your Neon branch
+npm run dev                  # http://localhost:3000
 ```
 
-Then open http://localhost:3000.
+### One-time setup
 
-### One-time setup for local dev
-
-1. **Neon** — create a project (free tier), then create a personal branch (e.g. `dev/<you>`) off `main`. Put its _pooled_ connection string in `DATABASE_URL`.
-2. **Google OAuth** — in Google Cloud Console create an OAuth 2.0 Client ID (type: Web application). Add `http://localhost:3000/api/auth/callback/google` as an authorised redirect URI. Copy the client ID/secret into `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
-3. **Auth secret** — `npx auth secret` writes a random `AUTH_SECRET` into `.env.local`.
+1. **Neon**: create a project, then copy the **pooled** connection string for the `neondb_owner` role into `DATABASE_URL`. (The Data API's `authenticator` role can't create tables.) A personal branch like `dev/<you>` keeps local data separate from production.
+2. **Google OAuth**: in Google Cloud Console create an OAuth 2.0 Client ID (Web application) with the redirect URI `http://localhost:3000/api/auth/callback/google`. Put the ID and secret in `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`.
+3. **Auth secret**: `npx auth secret` writes a random `AUTH_SECRET` into `.env.local`.
 
 ### Database changes
 
@@ -52,24 +81,34 @@ npm run db:migrate    # applies pending migrations to DATABASE_URL
 npm run db:studio     # browse the DB in Drizzle Studio
 ```
 
-Commit the generated migration. CI applies it to a throwaway Neon branch for every PR; the deploy workflow applies it to production before the new image goes live.
+Commit the generated migration. CI applies it to a throwaway Neon branch for every PR, and the deploy workflow applies it to production before the new image goes live.
 
 ### Scripts
 
-| Command                    | What it does                                    |
-| -------------------------- | ----------------------------------------------- |
-| `npm run dev`              | Next.js dev server with Turbopack               |
-| `npm run build`            | Production build                                |
-| `npm run start`            | Serve the production build                      |
-| `npm run typecheck`        | `tsc --noEmit` — same check CI runs             |
-| `npm run lint`             | ESLint — same lint CI runs                      |
-| `npm run format`           | Prettier — fix formatting                       |
-| `npm run format:check`     | Prettier — verify formatting (used by CI)       |
-| `npm test`                 | Vitest unit tests (pure modules, no DB)         |
-| `npm run test:integration` | Vitest integration tests against `DATABASE_URL` |
-| `npm run db:generate`      | Drizzle — generate a migration from schema      |
-| `npm run db:migrate`       | Drizzle — apply migrations to `DATABASE_URL`    |
-| `npm run db:studio`        | Drizzle Studio — browse the database            |
+| Command                    | What it does                                                   |
+| -------------------------- | -------------------------------------------------------------- |
+| `npm run dev`              | Next.js dev server (Turbopack)                                 |
+| `npm run build` / `start`  | Production build / serve it                                    |
+| `npm run typecheck`        | `tsc --noEmit`                                                 |
+| `npm run lint`             | ESLint                                                         |
+| `npm run format[:check]`   | Prettier write / verify                                        |
+| `npm test`                 | Vitest unit tests (pure modules, no DB)                        |
+| `npm run test:integration` | Vitest integration tests against `DATABASE_URL`                |
+| `npm run test:e2e`         | Playwright golden path (desktop + phone) against a running app |
+| `npm run screenshots`      | Regenerate the README screenshots with a throwaway demo user   |
+| `npm run db:generate`      | Drizzle: generate a migration from the schema                  |
+| `npm run db:migrate`       | Drizzle: apply migrations to `DATABASE_URL`                    |
+| `npm run db:studio`        | Drizzle Studio                                                 |
+
+## Testing
+
+- **Unit** (`npm test`): the calendar grid: padding days, Monday-start months, leap years, year boundaries.
+- **Integration** (`npm run test:integration`): `workouts-repo` against a real Postgres. Round-trips, done/undone timestamps, and **cross-user isolation**: user A can never list, update, toggle or delete user B's workouts.
+- **End-to-end** (`npm run test:e2e`): Playwright drives the golden path on desktop and a phone viewport. It opens the calendar, adds a workout through the dialog, marks it done, reloads, and checks it's still done. It also checks that anonymous visitors are redirected.
+
+  Google's consent screen can't run in CI, so the test creates a user and a database session directly and sets the session cookie. That's exactly the state Auth.js produces after a real Google callback, so no test-only code ships to production. See `e2e/test-user.ts`.
+
+Every PR runs all three: unit tests in `ci.yml`, and integration + e2e in `neon-branch.yml` against a fresh Neon branch (`preview/pr-<n>`) that is deleted when the PR closes.
 
 ## Deployment
 
@@ -133,22 +172,26 @@ After that, `git push origin main` triggers deploys via GitHub Actions.
 
 ```
 src/
-  app/                    # Next.js App Router pages/layouts
-    app/                  # Protected area (requires sign-in)
+  app/
+    page.tsx              # Landing / sign-in
+    app/                  # Protected calendar (page + server actions)
     api/auth/             # Auth.js route handler
-  auth.ts                 # Auth.js config — exposes auth(), signIn, signOut
+  auth.ts                 # Auth.js config: auth(), signIn, signOut
   proxy.ts                # Route guard for /app/* (optimistic; pages re-check)
   db/                     # Drizzle client + schema
-  components/             # UI components (shadcn primitives under ui/)
-  lib/                    # Utilities (cn, etc.)
-  instrumentation.ts      # Sentry server + edge init
+  lib/
+    calendar-grid/        # Pure month-grid builder + unit tests
+    workout-types/        # Workout type metadata (single source of truth)
+    workouts-repo/        # User-scoped data access + integration tests
+  components/
+    calendar/             # MonthGrid, DayCell, WorkoutCard, WorkoutDialog
+    ui/                   # shadcn primitives
+e2e/                      # Playwright golden path + session seeding
 drizzle/                  # SQL migrations (generated, checked in)
-drizzle.config.ts         # drizzle-kit config
-sentry.client.config.ts   # Sentry browser init
-Dockerfile                # Container build (used by Fly.io remote builder)
-fly.toml                  # Fly.io app config
+scripts/                  # README screenshot generator
+docs/screenshots/         # Images used in this README
 .github/workflows/
-  ci.yml                  # PR checks
-  neon-branch.yml         # Neon DB branch per PR + migrations; deleted on close
-  deploy.yml              # Prod deploy on merge to main (migrates first)
+  ci.yml                  # Typecheck, lint, format, unit tests
+  neon-branch.yml         # Per-PR Neon branch: migrate, integration, e2e
+  deploy.yml              # Migrate prod, then deploy to Fly on merge to main
 ```
