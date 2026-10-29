@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { format } from "date-fns";
 import { ChevronLeft } from "lucide-react";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { getToday } from "@/lib/today/server";
 import { AppNav } from "@/components/app-nav";
 import { ApplyPlanDialog } from "@/components/plans/apply-plan-dialog";
 import { PlanGrid } from "@/components/plans/plan-grid";
@@ -28,8 +28,8 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
   // Someone else's plan looks exactly like a missing one.
   if (!plan) notFound();
 
-  // Same "today" as the calendar: the server's local date.
-  const today = format(new Date(), "yyyy-MM-dd");
+  // Same "today" as the calendar: the user's timezone (see lib/today).
+  const today = await getToday();
 
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-5 px-3 py-4 sm:p-8">

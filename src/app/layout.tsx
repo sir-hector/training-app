@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Bricolage_Grotesque } from "next/font/google";
+import { TimeZoneSync } from "@/components/time-zone-sync";
 import { cn } from "@/lib/utils";
 
 // One typeface for the whole app. The optical-size axis keeps the small
@@ -23,7 +24,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={cn("font-sans", bricolage.variable)}>
-      <body className="bg-background text-foreground min-h-svh antialiased">{children}</body>
+      <body className="bg-background text-foreground min-h-svh antialiased">
+        <TimeZoneSync />
+        {children}
+      </body>
     </html>
   );
 }

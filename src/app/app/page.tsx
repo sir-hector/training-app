@@ -1,22 +1,25 @@
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
 import { auth } from "@/auth";
 import { AppNav } from "@/components/app-nav";
 import { MonthGrid } from "@/components/calendar/month-grid";
 import { MonthNav } from "@/components/calendar/month-nav";
 import { getMonthGrid } from "@/lib/calendar-grid";
+import { getToday } from "@/lib/today/server";
 import { workoutsRepo } from "@/lib/workouts-repo";
 
 const MONTH_PARAM = /^(\d{4})-(\d{2})$/;
 
-function resolveMonth(param: string | undefined, now: Date): { year: number; month: number } {
+function resolveMonth(
+  param: string | undefined,
+  todayIso: string,
+): { year: number; month: number } {
   const m = param?.match(MONTH_PARAM);
   if (m) {
     const year = Number(m[1]);
     const month = Number(m[2]);
     if (month >= 1 && month <= 12 && year >= 1970 && year <= 2200) return { year, month };
   }
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  return { year: Number(todayIso.slice(0, 4)), month: Number(todayIso.slice(5, 7)) };
 }
 
 export default async function AppPage({
@@ -29,10 +32,10 @@ export default async function AppPage({
   const [session, params] = await Promise.all([auth(), searchParams]);
   if (!session) redirect("/?callbackUrl=/app");
 
-  // "Today" is the server's clock (UTC on Fly). Good enough for v1; revisit if
-  // the highlight is off near midnight.
-  const now = new Date();
-  const { year, month } = resolveMonth(params.month, now);
+  // "Today" in the user's timezone (cookie set by TimeZoneSync), not the
+  // server's UTC clock, so the highlight and default month are right at midnight.
+  const todayIso = await getToday();
+  const { year, month } = resolveMonth(params.month, todayIso);
   const grid = getMonthGrid(year, month);
 
   // Fetch the whole visible range so padding days show their workouts too.
@@ -50,7 +53,7 @@ export default async function AppPage({
         <AppNav current="calendar" />
       </header>
       <MonthNav year={year} month={month} />
-      <MonthGrid grid={grid} todayIso={format(now, "yyyy-MM-dd")} workouts={workouts} />
+      <MonthGrid grid={grid} todayIso={todayIso} workouts={workouts} />
     </main>
   );
 }
