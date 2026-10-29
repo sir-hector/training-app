@@ -81,7 +81,9 @@ export function DayCell({ day, isToday, workouts }: Props) {
       <WorkoutDialog
         key={session}
         dateIso={day.iso}
-        workout={editing}
+        // The live (optimistic, then revalidated) row, so changes made without
+        // closing the dialog (ticking exercises off) show up in it.
+        workout={editing && (visible.find((w) => w.id === editing.id) ?? editing)}
         open={open}
         onOpenChange={setOpen}
         onOptimistic={applyOptimistic}

@@ -4,7 +4,7 @@ import { useOptimistic, useTransition } from "react";
 import { Check } from "lucide-react";
 import { setWorkoutDone } from "@/app/app/actions";
 import type { Workout } from "@/db/schema";
-import { summarize } from "@/lib/workout-structure";
+import { summarizeWithProgress } from "@/lib/workout-structure";
 import { WORKOUT_TYPE_META } from "@/lib/workout-types";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,7 @@ type Props = {
 export function WorkoutCard({ workout, onEdit }: Props) {
   const meta = WORKOUT_TYPE_META[workout.type];
   const Icon = meta.icon;
-  const summary = workout.structure ? summarize(workout.structure) : null;
+  const summary = workout.structure ? summarizeWithProgress(workout.structure) : null;
   const heading = summary ? `${meta.label} · ${summary}` : meta.label;
 
   // Flip immediately; React drops the optimistic value when the transition

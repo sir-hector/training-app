@@ -183,6 +183,45 @@ describe("plansRepo.applyToCalendar", () => {
     expect((await plansRepo.findById(userA, plan.id))?.days).toHaveLength(4);
   });
 
+  it("strips exercise done flags: on addDay/updateDay and when stamping workouts", async () => {
+    const ticked: WorkoutStructure = {
+      kind: "strength",
+      exercises: [
+        { name: "Squat", sets: [{ reps: 5, weightKg: 100 }], done: true },
+        { name: "Bench", sets: [{ reps: 8 }] },
+      ],
+    };
+    const untickedStructure: WorkoutStructure = {
+      kind: "strength",
+      exercises: [
+        { name: "Squat", sets: [{ reps: 5, weightKg: 100 }] },
+        { name: "Bench", sets: [{ reps: 8 }] },
+      ],
+    };
+    const plan = await plansRepo.create(userA, { name: "Ticked", weeks: 1 });
+    const added = await plansRepo.addDay(userA, plan.id, {
+      weekIndex: 0,
+      dayOfWeek: 0,
+      type: "gym",
+      structure: ticked,
+    });
+    expect(added?.structure).toEqual(untickedStructure);
+    const updated = await plansRepo.updateDay(userA, added!.id, { structure: ticked });
+    expect(updated?.structure).toEqual(untickedStructure);
+
+    // A plan day that somehow carries flags (written directly) still applies clean.
+    await db.insert(planDays).values({
+      planId: plan.id,
+      weekIndex: 0,
+      dayOfWeek: 1,
+      type: "gym",
+      structure: ticked,
+    });
+    expect(await plansRepo.applyToCalendar(userA, plan.id, "2036-01-07")).toBe(2);
+    const created = await workoutsOf(userA, "2036-01-07", "2036-01-13");
+    expect(created.map((w) => w.structure)).toEqual([untickedStructure, untickedStructure]);
+  });
+
   it("returns 0 for a plan with no days", async () => {
     const plan = await plansRepo.create(userA, { name: "Empty", weeks: 3 });
     expect(await plansRepo.applyToCalendar(userA, plan.id, "2034-01-02")).toBe(0);

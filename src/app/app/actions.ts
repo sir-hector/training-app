@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
+import type { Workout } from "@/db/schema";
 import { parseWorkoutForm, type WorkoutFormError } from "@/lib/workout-form";
 import { WORKOUT_TYPES } from "@/lib/workout-types";
 import { workoutsRepo } from "@/lib/workouts-repo";
@@ -74,6 +75,47 @@ export async function setWorkoutDone(workoutId: string, done: boolean): Promise<
 
   revalidatePath("/app");
   return { ok: true, done: updated.done };
+}
+
+const setExerciseDoneSchema = z.object({
+  workoutId: z.uuid(),
+  exerciseIndex: z.number().int().nonnegative(),
+  done: z.boolean(),
+});
+
+export type SetExerciseDoneResult = { ok: true; workout: Workout } | { ok: false; message: string };
+
+/**
+ * Tick one exercise of a strength workout off (or back on). Ticking the last
+ * one marks the workout done; unticking any marks it not done.
+ */
+export async function setExerciseDone(
+  workoutId: string,
+  exerciseIndex: number,
+  done: boolean,
+): Promise<SetExerciseDoneResult> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { ok: false, message: "You must be signed in." };
+  }
+
+  const parsed = setExerciseDoneSchema.safeParse({ workoutId, exerciseIndex, done });
+  if (!parsed.success) {
+    return { ok: false, message: "Invalid request." };
+  }
+
+  const updated = await workoutsRepo.setExerciseDone(
+    session.user.id,
+    parsed.data.workoutId,
+    parsed.data.exerciseIndex,
+    parsed.data.done,
+  );
+  if (!updated) {
+    return { ok: false, message: "Exercise not found." };
+  }
+
+  revalidatePath("/app");
+  return { ok: true, workout: updated };
 }
 
 /** Same state shape as create so the dialog can use either action. */

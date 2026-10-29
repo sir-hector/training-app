@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, getTableColumns, gte, inArray, sql } from "d
 import { db } from "@/db";
 import { planDays, plans, workouts, type Plan, type PlanDay } from "@/db/schema";
 import { PLAN_MAX_WEEKS, planDayDate } from "@/lib/plan-dates";
-import type { WorkoutStructure } from "@/lib/workout-structure";
+import { withoutExerciseDone, type WorkoutStructure } from "@/lib/workout-structure";
 import type { WorkoutType } from "@/lib/workout-types";
 
 export type { Plan, PlanDay };
@@ -165,7 +165,8 @@ export const plansRepo = {
   async addDay(userId: string, planId: string, input: PlanDayInput): Promise<PlanDay | null> {
     checkDayPosition(input.weekIndex, input.dayOfWeek);
     const notes = normalizeNotes(input.notes);
-    const structure = input.structure ? JSON.stringify(input.structure) : null;
+    // Ticking exercises off is a calendar-only concept: templates never carry it.
+    const structure = input.structure ? JSON.stringify(withoutExerciseDone(input.structure)) : null;
     const [row] = await db
       .insert(planDays)
       .select(
@@ -203,7 +204,7 @@ export const plansRepo = {
     const set: Partial<typeof planDays.$inferInsert> = {};
     if (patch.type !== undefined) set.type = patch.type;
     if (patch.notes !== undefined) set.notes = normalizeNotes(patch.notes);
-    if (patch.structure !== undefined) set.structure = patch.structure;
+    if (patch.structure !== undefined) set.structure = withoutExerciseDone(patch.structure);
     const scope = and(eq(planDays.id, dayId), inArray(planDays.planId, ownedPlanIds(userId)));
     if (Object.keys(set).length === 0) {
       const [row] = await db.select().from(planDays).where(scope).limit(1);
@@ -226,6 +227,9 @@ export const plansRepo = {
    * Stamp the plan onto the calendar: one workout per plan day, dated
    * `startMonday + weekIndex * 7 + dayOfWeek`. All rows go in a single
    * multi-row INSERT, so it is atomic: every workout is created or none is.
+   *
+   * Exercise `done` flags are stripped, so every stamped workout starts
+   * with nothing ticked off.
    *
    * Returns the number of workouts created, or null when the plan doesn't
    * exist for this user (nothing is written). Throws a RangeError when
@@ -250,7 +254,9 @@ export const plansRepo = {
           date: planDayDate(startMonday, d.weekIndex, d.dayOfWeek),
           type: d.type,
           notes: d.notes,
-          structure: d.structure,
+          // Fresh workouts start with nothing ticked off (also guards rows
+          // written before plan days stripped the flag).
+          structure: withoutExerciseDone(d.structure),
         })),
       )
       .returning({ id: workouts.id });

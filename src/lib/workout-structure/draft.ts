@@ -8,7 +8,18 @@ import type { StructureKind, WorkoutStructure } from "./index";
  */
 
 export type StrengthSetDraft = { id: string; reps: string; weightKg: string };
-export type ExerciseDraft = { id: string; name: string; sets: StrengthSetDraft[] };
+export type ExerciseDraft = {
+  id: string;
+  name: string;
+  sets: StrengthSetDraft[];
+  /**
+   * Ticked off on the calendar. Not editable in the structure editor; carried
+   * through so saving the form doesn't wipe progress. It belongs to the draft
+   * row, so it follows an exercise when it's renamed or its sets change, and
+   * goes away with it when the row is removed.
+   */
+  done?: boolean;
+};
 export type StrengthDraft = { kind: "strength"; exercises: ExerciseDraft[] };
 
 export type IntervalRepeatDraft = {
@@ -75,6 +86,7 @@ export function draftFromStructure(structure: WorkoutStructure): StructureDraft 
         exercises: structure.exercises.map((e) => ({
           id: draftId(),
           name: e.name,
+          ...(e.done ? { done: true } : {}),
           sets: e.sets.map((s) => ({
             id: draftId(),
             reps: str(s.reps),
@@ -160,6 +172,7 @@ export function structureFromDraft(draft: StructureDraft | null): unknown {
         exercises: draft.exercises.map((e) => ({
           name: e.name.trim(),
           sets: e.sets.map((s) => compact({ reps: num(s.reps), weightKg: num(s.weightKg) })),
+          ...(e.done ? { done: true } : {}),
         })),
       };
     case "intervals":
@@ -185,4 +198,27 @@ export function structureFromDraft(draft: StructureDraft | null): unknown {
         targetPace: text(draft.targetPace),
       });
   }
+}
+
+/** A copy of `item` with `done: true`, or with the flag removed (absent = not done). */
+export function withDoneFlag<T extends { done?: boolean }>(item: T, done: boolean): T {
+  const copy = { ...item };
+  delete copy.done;
+  if (done) copy.done = true;
+  return copy;
+}
+
+/**
+ * Tick (or untick) the draft row `rowId`, so the form keeps a tick made
+ * outside the editor. Returns the draft unchanged when the row is gone.
+ */
+export function withDraftExerciseDone(
+  draft: StrengthDraft,
+  rowId: string,
+  done: boolean,
+): StrengthDraft {
+  return {
+    ...draft,
+    exercises: draft.exercises.map((e) => (e.id === rowId ? withDoneFlag(e, done) : e)),
+  };
 }
