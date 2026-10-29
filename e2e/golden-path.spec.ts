@@ -59,3 +59,48 @@ test("anonymous visitors are redirected to sign-in", async ({ browser }) => {
   await expect(page.getByRole("button", { name: "Sign in with Google" })).toBeVisible();
   await anon.close();
 });
+
+/**
+ * Open a workout the way a user would on any device: tap the card away from
+ * the done toggle (left edge on touch, right edge on desktop), i.e. its middle.
+ */
+async function openCard(card: import("@playwright/test").Locator) {
+  const box = await card.boundingBox();
+  if (!box) throw new Error("workout card not visible");
+  await card.click({ position: { x: box.width / 2, y: box.height / 2 } });
+}
+
+test("mark done from the edit dialog", async ({ page }) => {
+  await page.goto(`/app?month=${MONTH}`);
+  const cell = page.getByRole("gridcell", { name: new RegExp(`^${DAY},`) });
+  await cell.click();
+  const addDialog = page.getByRole("dialog", { name: "Add workout" });
+  await addDialog.getByRole("combobox", { name: "Type" }).click();
+  await page.getByRole("option", { name: "Run", exact: true }).click();
+  await addDialog.getByRole("button", { name: "Add workout" }).click();
+  await expect(addDialog).toBeHidden();
+
+  // Open the workout, mark it done from the dialog.
+  await openCard(cell.locator("[data-slot=workout-card]"));
+  const editDialog = page.getByRole("dialog", { name: "Edit workout" });
+  await expect(editDialog.getByText("Planned")).toBeVisible();
+  await editDialog.getByRole("button", { name: "Mark as done" }).click();
+  await expect(editDialog).toBeHidden();
+  await expect(cell.getByRole("checkbox", { name: "Mark Run as not done" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+
+  // Survives a reload, and the dialog offers to undo it.
+  await page.reload();
+  const reloaded = page.getByRole("gridcell", { name: new RegExp(`^${DAY},`) });
+  await openCard(reloaded.locator("[data-slot=workout-card]"));
+  const again = page.getByRole("dialog", { name: "Edit workout" });
+  await expect(again.getByText(/^Done on /)).toBeVisible();
+  await again.getByRole("button", { name: "Mark as not done" }).click();
+  await expect(again).toBeHidden();
+  await expect(reloaded.getByRole("checkbox", { name: "Mark Run as done" })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+});

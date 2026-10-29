@@ -2,10 +2,11 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { format, parseISO } from "date-fns";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { Check, CircleCheck, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import {
   createWorkout,
   deleteWorkout,
+  setWorkoutDone,
   updateWorkout,
   type CreateWorkoutState,
 } from "@/app/app/actions";
@@ -32,6 +33,7 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useWorkoutFields, WorkoutFields } from "@/components/workout-form/workout-fields";
 import { workoutStructureSchema } from "@/lib/workout-structure";
+import { cn } from "@/lib/utils";
 import { WORKOUT_TYPE_META, type WorkoutType } from "@/lib/workout-types";
 
 const initial: CreateWorkoutState = { status: "idle" };
@@ -112,9 +114,28 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
     });
   };
 
+  // Mark done / not done straight from the dialog: the obvious place on every
+  // device, since the card's own toggle is small (and hover-only on desktop).
+  const [toggling, startToggle] = useTransition();
+  const [toggleError, setToggleError] = useState<string | null>(null);
+  const toggleDone = () => {
+    if (!workout) return;
+    const next = !workout.done;
+    setToggleError(null);
+    startToggle(async () => {
+      onOptimistic({
+        kind: "update",
+        workout: { ...workout, done: next, completedAt: next ? new Date() : null },
+      });
+      const result = await setWorkoutDone(workout.id, next);
+      if (result.ok) onOpenChange(false);
+      else setToggleError(result.message);
+    });
+  };
+
   const errors = state.status === "error" ? state.fieldErrors : undefined;
   const structureErrors = state.status === "error" ? state.structureErrors : undefined;
-  const busy = pending || deleting;
+  const busy = pending || deleting || toggling;
   const displayDate = workout?.date ?? dateIso;
 
   return (
@@ -133,6 +154,49 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
 
           {/* Only the body scrolls, so header and actions stay visible on small screens. */}
           <div className="-mx-4 flex min-h-0 flex-col gap-4 overflow-y-auto px-4 py-0.5">
+            {workout && (
+              <div
+                data-slot="workout-status"
+                className={cn(
+                  "flex items-center justify-between gap-3 rounded-lg border px-3 py-2",
+                  workout.done && "bg-muted",
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-2 text-sm">
+                  {workout.done ? (
+                    <CircleCheck className="text-brand size-4 shrink-0" aria-hidden />
+                  ) : (
+                    <span className="size-4 shrink-0 rounded-full border-2" aria-hidden />
+                  )}
+                  <span className="truncate">
+                    {workout.done
+                      ? workout.completedAt
+                        ? `Done on ${format(new Date(workout.completedAt), "d MMM")}`
+                        : "Done"
+                      : "Planned"}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={workout.done ? "ghost" : "outline"}
+                  onClick={toggleDone}
+                  disabled={busy}
+                >
+                  {workout.done ? (
+                    <RotateCcw data-icon="inline-start" />
+                  ) : (
+                    <Check data-icon="inline-start" />
+                  )}
+                  {toggling ? "Saving…" : workout.done ? "Mark as not done" : "Mark as done"}
+                </Button>
+              </div>
+            )}
+            {toggleError && (
+              <p role="alert" className="text-destructive text-sm">
+                {toggleError}
+              </p>
+            )}
             <FieldGroup>
               {editing && (
                 <Field data-invalid={errors?.date ? true : undefined}>
