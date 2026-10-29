@@ -112,3 +112,93 @@ test("switching to a type with a different format drops the details", async ({ p
   await expect(dialog).toBeHidden();
   await expect(page.getByRole("button", { name: "Edit Run · 18 km" })).toBeAttached();
 });
+
+test("tick off exercises one by one → progress on the card → last tick completes the workout", async ({
+  page,
+}) => {
+  const { cell, dialog } = await openAddDialog(page);
+  await pickType(page, dialog, "Gym");
+  await dialog.getByRole("button", { name: "Add details" }).click();
+  await dialog.getByRole("textbox", { name: "Exercise 1 name" }).fill("Back squat");
+  await dialog.getByRole("spinbutton", { name: "Exercise 1, set 1 reps" }).fill("5");
+  await dialog.getByRole("spinbutton", { name: "Exercise 1, set 1 weight (kg)" }).fill("80");
+  await dialog.getByRole("button", { name: "Add set to exercise 1" }).click();
+  await dialog.getByRole("button", { name: "Add exercise" }).click();
+  await dialog.getByRole("textbox", { name: "Exercise 2 name" }).fill("Pull-up");
+  await dialog.getByRole("spinbutton", { name: "Exercise 2, set 1 reps" }).fill("8");
+  await dialog.getByRole("button", { name: "Add workout" }).click();
+  await expect(dialog).toBeHidden();
+
+  const openEdit = async (label: string) => {
+    await cell.getByRole("button", { name: `Edit Gym · ${label}` }).press("Enter");
+    const editDialog = page.getByRole("dialog", { name: "Edit workout" });
+    await expect(editDialog).toBeVisible();
+    return editDialog;
+  };
+  // The calendar behind the modal dialog is hidden from the accessibility tree
+  // while it's open, hence `includeHidden`.
+  const behind = page.getByRole("gridcell", {
+    name: new RegExp(`^${DAY},`),
+    includeHidden: true,
+  });
+  const cardToggle = behind.getByRole("checkbox", { name: /^Mark Gym as /, includeHidden: true });
+  const cardWith = (label: string) =>
+    behind.getByRole("button", { name: `Edit Gym · ${label}`, includeHidden: true });
+
+  // Ticks show at once (optimistic); wait for the save before reloading.
+  const saved = async () => {
+    const dialog = page.getByRole("dialog", { name: "Edit workout" });
+    await expect(dialog.locator('[data-slot="exercise-checklist"]:not([aria-busy])')).toBeVisible();
+    await expect(dialog.getByRole("alert")).toHaveCount(0);
+  };
+
+  // Tick the first exercise: saved at once, the dialog stays open.
+  let edit = await openEdit("2 ex · 3 sets");
+  const squat = edit.getByRole("checkbox", { name: /^Back squat/ });
+  const pullUp = edit.getByRole("checkbox", { name: /^Pull-up/ });
+  await expect(edit.getByText("2 × 5 @ 80 kg")).toBeVisible();
+  await expect(
+    edit.getByText(/0 of 2 exercises · workout completes when all are ticked/),
+  ).toBeVisible();
+  await squat.check();
+  await expect(squat).toBeChecked();
+  await saved();
+  await expect(edit.getByText(/1 of 2 exercises/)).toBeVisible();
+  await expect(edit).toBeVisible();
+  await expect(cardWith("1/2 ex · 3 sets")).toBeAttached();
+  await expect(cardToggle).not.toBeChecked();
+  await edit.getByRole("button", { name: "Cancel" }).click();
+  await expect(edit).toBeHidden();
+
+  // Persists across a reload.
+  await page.reload();
+  edit = await openEdit("1/2 ex · 3 sets");
+  await expect(squat).toBeChecked();
+  await expect(pullUp).not.toBeChecked();
+  await expect(edit.locator('[data-slot="workout-status"]')).toContainText("Planned");
+
+  // Ticking the last one marks the whole workout done.
+  await pullUp.check();
+  await saved();
+  await expect(edit.locator('[data-slot="workout-status"]')).toContainText("Done on");
+  await expect(cardToggle).toBeChecked();
+  await expect(cardWith("2/2 ex · 3 sets")).toBeAttached();
+
+  // Saving the form afterwards keeps the ticks.
+  await edit.getByRole("button", { name: "Save changes" }).click();
+  await expect(edit).toBeHidden();
+  await page.reload();
+  await expect(cardToggle).toBeChecked();
+
+  // Unticking any exercise reopens the workout.
+  edit = await openEdit("2/2 ex · 3 sets");
+  await expect(squat).toBeChecked();
+  await squat.uncheck();
+  await saved();
+  await expect(edit.locator('[data-slot="workout-status"]')).toContainText("Planned");
+  await expect(cardToggle).not.toBeChecked();
+  await edit.getByRole("button", { name: "Cancel" }).click();
+  await page.reload();
+  await expect(cardToggle).not.toBeChecked();
+  await expect(cardWith("1/2 ex · 3 sets")).toBeAttached();
+});

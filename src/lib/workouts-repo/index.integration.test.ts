@@ -221,3 +221,109 @@ describe("workoutsRepo", () => {
     expect(left).toHaveLength(0);
   });
 });
+
+describe("workoutsRepo.setExerciseDone", () => {
+  const threeExercises: WorkoutStructure = {
+    kind: "strength",
+    exercises: [
+      { name: "Squat", sets: [{ reps: 5, weightKg: 80 }] },
+      { name: "Bench", sets: [{ reps: 8 }] },
+      { name: "Row", sets: [{ reps: 10 }] },
+    ],
+  };
+  const doneFlags = (w: { structure: WorkoutStructure | null } | null) =>
+    w?.structure?.kind === "strength" ? w.structure.exercises.map((e) => e.done ?? false) : null;
+
+  const gym = () =>
+    workoutsRepo.create(userA, { date: "2026-06-01", type: "gym", structure: threeExercises });
+
+  it("ticks and unticks one exercise, leaving the others and the workout alone", async () => {
+    const w = await gym();
+    const on = await workoutsRepo.setExerciseDone(userA, w.id, 1, true);
+    expect(doneFlags(on)).toEqual([false, true, false]);
+    expect(on?.done).toBe(false);
+    expect(on?.completedAt).toBeNull();
+    expect(doneFlags(await workoutsRepo.findById(userA, w.id))).toEqual([false, true, false]);
+
+    const off = await workoutsRepo.setExerciseDone(userA, w.id, 1, false);
+    expect(doneFlags(off)).toEqual([false, false, false]);
+    // Unticked means absent, not `false`.
+    expect(off?.structure?.kind === "strength" && "done" in off.structure.exercises[1]).toBe(false);
+    // Names and sets are untouched.
+    expect(off?.structure).toEqual(threeExercises);
+  });
+
+  it("ticking the last exercise marks the workout done with completed_at", async () => {
+    const w = await gym();
+    await workoutsRepo.setExerciseDone(userA, w.id, 0, true);
+    await workoutsRepo.setExerciseDone(userA, w.id, 2, true);
+    const before = Date.now();
+    const last = await workoutsRepo.setExerciseDone(userA, w.id, 1, true);
+    expect(doneFlags(last)).toEqual([true, true, true]);
+    expect(last?.done).toBe(true);
+    expect(last?.completedAt).toBeInstanceOf(Date);
+    // Allow for clock skew between this machine and the database.
+    expect(last!.completedAt!.getTime()).toBeGreaterThan(before - 60_000);
+
+    // Ticking an already-ticked exercise of a done workout keeps the stamp.
+    const again = await workoutsRepo.setExerciseDone(userA, w.id, 1, true);
+    expect(again?.done).toBe(true);
+    expect(again?.completedAt?.getTime()).toBe(last!.completedAt!.getTime());
+  });
+
+  it("unticking one exercise of a done workout marks it not done", async () => {
+    const w = await gym();
+    for (const i of [0, 1, 2]) await workoutsRepo.setExerciseDone(userA, w.id, i, true);
+    const off = await workoutsRepo.setExerciseDone(userA, w.id, 0, false);
+    expect(doneFlags(off)).toEqual([false, true, true]);
+    expect(off?.done).toBe(false);
+    expect(off?.completedAt).toBeNull();
+  });
+
+  it("marking the whole workout done/not done doesn't change ticks; ticks keep a manual done", async () => {
+    const w = await gym();
+    await workoutsRepo.setExerciseDone(userA, w.id, 0, true);
+    const done = await workoutsRepo.setDone(userA, w.id, true);
+    expect(doneFlags(done)).toEqual([true, false, false]);
+    // Ticking another (not the last) exercise of a manually done workout keeps it done.
+    const ticked = await workoutsRepo.setExerciseDone(userA, w.id, 1, true);
+    expect(ticked?.done).toBe(true);
+    expect(ticked?.completedAt?.getTime()).toBe(done!.completedAt!.getTime());
+    const notDone = await workoutsRepo.setDone(userA, w.id, false);
+    expect(doneFlags(notDone)).toEqual([true, true, false]);
+  });
+
+  it("returns null for an out-of-range index or a non-strength workout", async () => {
+    const w = await gym();
+    expect(await workoutsRepo.setExerciseDone(userA, w.id, 3, true)).toBeNull();
+    expect(await workoutsRepo.setExerciseDone(userA, w.id, -1, true)).toBeNull();
+    expect(await workoutsRepo.setExerciseDone(userA, w.id, 0.5, true)).toBeNull();
+    expect((await workoutsRepo.findById(userA, w.id))?.structure).toEqual(threeExercises);
+
+    const run = await workoutsRepo.create(userA, {
+      date: "2026-06-02",
+      type: "long_run",
+      structure: { kind: "endurance", distanceKm: 18 },
+    });
+    expect(await workoutsRepo.setExerciseDone(userA, run.id, 0, true)).toBeNull();
+    const plain = await workoutsRepo.create(userA, { date: "2026-06-02", type: "gym" });
+    expect(await workoutsRepo.setExerciseDone(userA, plain.id, 0, true)).toBeNull();
+    expect((await workoutsRepo.findById(userA, run.id))?.structure).toEqual({
+      kind: "endurance",
+      distanceKm: 18,
+    });
+  });
+
+  it("CRITICAL: setExerciseDone cannot touch another user's workout", async () => {
+    const b = await workoutsRepo.create(userB, {
+      date: "2026-06-03",
+      type: "gym",
+      structure: { kind: "strength", exercises: [threeExercises.exercises[0]] },
+    });
+    expect(await workoutsRepo.setExerciseDone(userA, b.id, 0, true)).toBeNull();
+    const untouched = await workoutsRepo.findById(userB, b.id);
+    expect(doneFlags(untouched)).toEqual([false]);
+    expect(untouched?.done).toBe(false);
+    expect(untouched?.completedAt).toBeNull();
+  });
+});

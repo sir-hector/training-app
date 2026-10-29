@@ -110,6 +110,64 @@ export const workoutsRepo = {
     return row ?? null;
   },
 
+  /**
+   * Tick exercise `index` of a strength workout off (or back on) and apply
+   * the rule linking exercises to the workout:
+   * - ticking the last unticked exercise marks the workout done (stamping
+   *   `completed_at` like `setDone`, keeping an existing stamp);
+   * - unticking any exercise of a done workout marks it not done.
+   * Otherwise `done`/`completed_at` are left alone.
+   *
+   * One UPDATE scoped by user and id: the jsonb is patched in place with
+   * `jsonb_set` / `#-` (only that exercise's `done` key), so two quick ticks
+   * on different exercises can't overwrite each other the way a read-modify-
+   * write of the whole structure could, and the "all done?" check reads the
+   * row under the UPDATE's row lock. Returns null (nothing written) when the
+   * workout doesn't exist for this user, isn't a strength workout, or
+   * `index` is out of range.
+   */
+  async setExerciseDone(
+    userId: string,
+    id: string,
+    index: number,
+    done: boolean,
+  ): Promise<Workout | null> {
+    if (!Number.isInteger(index) || index < 0) return null;
+    const path = sql`array['exercises', ${String(index)}, 'done']::text[]`;
+    // Every *other* exercise is already done (column refs in SET see the old row).
+    const othersDone = sql`not exists (
+      select 1
+      from jsonb_array_elements(${workouts.structure} -> 'exercises') with ordinality as e(ex, ord)
+      where e.ord <> ${index + 1}::bigint
+        and (e.ex -> 'done') is distinct from 'true'::jsonb
+    )`;
+    const set = done
+      ? {
+          structure: sql`jsonb_set(${workouts.structure}, ${path}, 'true'::jsonb)`,
+          done: sql`${workouts.done} or ${othersDone}`,
+          completedAt: sql`case when ${workouts.done} or ${othersDone}
+            then coalesce(${workouts.completedAt}, now()) else ${workouts.completedAt} end`,
+        }
+      : {
+          structure: sql`${workouts.structure} #- ${path}`,
+          done: false,
+          completedAt: null,
+        };
+    const [row] = await db
+      .update(workouts)
+      .set(set)
+      .where(
+        and(
+          eq(workouts.userId, userId),
+          eq(workouts.id, id),
+          sql`${workouts.structure} ->> 'kind' = 'strength'`,
+          sql`jsonb_array_length(${workouts.structure} -> 'exercises') > ${index}::integer`,
+        ),
+      )
+      .returning();
+    return row ?? null;
+  },
+
   async findById(userId: string, id: string): Promise<Workout | null> {
     const [row] = await db
       .select()

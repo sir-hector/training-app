@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { withDoneFlag } from "./draft";
 
 /**
  * Optional structure attached to a workout (and, later, to plan days):
@@ -69,6 +70,11 @@ export const exerciseSchema = z.object({
     .array(strengthSetSchema)
     .min(1, "Add at least one set")
     .max(L.setsPerExercise, `At most ${L.setsPerExercise} sets per exercise`),
+  /**
+   * Ticked off on the calendar (absent = not done). Calendar workouts only:
+   * plan days and freshly applied plans never carry it (see `withoutExerciseDone`).
+   */
+  done: z.boolean().optional(),
 });
 
 export const strengthStructureSchema = z.object({
@@ -122,6 +128,7 @@ export const workoutStructureSchema = z.discriminatedUnion(
 
 export type WorkoutStructure = z.infer<typeof workoutStructureSchema>;
 export type StrengthStructure = z.infer<typeof strengthStructureSchema>;
+export type Exercise = z.infer<typeof exerciseSchema>;
 export type IntervalsStructure = z.infer<typeof intervalsStructureSchema>;
 export type EnduranceStructure = z.infer<typeof enduranceStructureSchema>;
 
@@ -223,6 +230,87 @@ export function summarize(structure: WorkoutStructure): string {
       return `@ ${structure.targetPace}/km`;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Per-exercise completion (strength only)
+// ---------------------------------------------------------------------------
+
+export type ExerciseProgress = { done: number; total: number };
+
+/**
+ * How many exercises of a strength structure are ticked off. Null for other
+ * kinds (and for no structure), which have nothing to tick.
+ */
+export function exerciseProgress(
+  structure: WorkoutStructure | null | undefined,
+): ExerciseProgress | null {
+  if (!structure || structure.kind !== "strength") return null;
+  return {
+    done: structure.exercises.filter((e) => e.done === true).length,
+    total: structure.exercises.length,
+  };
+}
+
+/**
+ * Card label with exercise progress: `2/3 ex · 9 sets` once anything is
+ * ticked, otherwise exactly `summarize()`.
+ */
+export function summarizeWithProgress(structure: WorkoutStructure): string {
+  const progress = exerciseProgress(structure);
+  if (!progress || progress.done === 0) return summarize(structure);
+  return summarize(structure).replace(/^\d+ ex/, `${progress.done}/${progress.total} ex`);
+}
+
+/**
+ * The structure with exercise `index` ticked (`done: true`) or unticked (flag
+ * removed). Null when it isn't a strength structure or the index is out of
+ * range. Pure; mirrors what `workoutsRepo.setExerciseDone` writes.
+ */
+export function withExerciseDone(
+  structure: WorkoutStructure | null | undefined,
+  index: number,
+  done: boolean,
+): StrengthStructure | null {
+  if (!structure || structure.kind !== "strength") return null;
+  if (!Number.isInteger(index) || index < 0 || index >= structure.exercises.length) return null;
+  return {
+    ...structure,
+    exercises: structure.exercises.map((e, i) => (i === index ? withDoneFlag(e, done) : e)),
+  };
+}
+
+/**
+ * The same structure with every exercise `done` flag removed. Used wherever a
+ * structure becomes a template (plan days) or a fresh workout from one.
+ */
+export function withoutExerciseDone<T extends WorkoutStructure | null | undefined>(
+  structure: T,
+): T {
+  if (!structure || structure.kind !== "strength") return structure;
+  return {
+    ...structure,
+    exercises: structure.exercises.map((e) => withDoneFlag(e, false)),
+  } as T;
+}
+
+function fmtSet(s: Exercise["sets"][number]): string {
+  return s.weightKg !== undefined ? `${s.reps} @ ${fmtNumber(s.weightKg)} kg` : `${s.reps}`;
+}
+
+/**
+ * Compact set summary for one exercise: `3 × 5 @ 80 kg` when every set is
+ * the same, otherwise runs of equal sets, e.g. `2 × 5 @ 80 kg, 1 × 3 @ 90 kg`.
+ */
+export function summarizeSets(exercise: Exercise): string {
+  const runs: { label: string; count: number }[] = [];
+  for (const set of exercise.sets) {
+    const label = fmtSet(set);
+    const last = runs.at(-1);
+    if (last && last.label === label) last.count += 1;
+    else runs.push({ label, count: 1 });
+  }
+  return runs.map((r) => `${r.count} × ${r.label}`).join(", ");
 }
 
 export * from "./draft";

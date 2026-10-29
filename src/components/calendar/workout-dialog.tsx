@@ -6,6 +6,7 @@ import { Check, CircleCheck, Plus, RotateCcw, Save, Trash2 } from "lucide-react"
 import {
   createWorkout,
   deleteWorkout,
+  setExerciseDone,
   setWorkoutDone,
   updateWorkout,
   type CreateWorkoutState,
@@ -32,7 +33,13 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useWorkoutFields, WorkoutFields } from "@/components/workout-form/workout-fields";
-import { workoutStructureSchema } from "@/lib/workout-structure";
+import {
+  exerciseProgress,
+  summarizeSets,
+  withDraftExerciseDone,
+  withExerciseDone,
+  workoutStructureSchema,
+} from "@/lib/workout-structure";
 import { cn } from "@/lib/utils";
 import { WORKOUT_TYPE_META, type WorkoutType } from "@/lib/workout-types";
 
@@ -133,6 +140,44 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
     });
   };
 
+  // Tick exercises off one by one (strength workouts). Saves at once and keeps
+  // the dialog open; the last tick completes the workout, any untick reopens it.
+  const [ticking, startTick] = useTransition();
+  const [tickError, setTickError] = useState<string | null>(null);
+  // Draft rows as first loaded, in saved order: exercise `i` of the saved
+  // structure is draft row `savedExerciseIds[i]` until the form is saved.
+  const [savedExerciseIds] = useState(() =>
+    fields.draft?.kind === "strength" ? fields.draft.exercises.map((e) => e.id) : [],
+  );
+  const tickExercise = (index: number, done: boolean) => {
+    if (!workout) return;
+    const structure = withExerciseDone(workout.structure, index, done);
+    const progress = exerciseProgress(structure);
+    if (!structure || !progress) return;
+    const completes = done && progress.done === progress.total;
+    const reopens = !done && workout.done;
+    const next: Workout = {
+      ...workout,
+      structure,
+      ...(completes && { done: true, completedAt: workout.completedAt ?? new Date() }),
+      ...(reopens && { done: false, completedAt: null }),
+    };
+    // Keep the form's draft in step, so "Save changes" doesn't undo the tick.
+    const draft = fields.draft;
+    const rowId = savedExerciseIds[index];
+    if (draft?.kind === "strength" && rowId) {
+      fields.setDraft(withDraftExerciseDone(draft, rowId, done));
+    }
+    setTickError(null);
+    startTick(async () => {
+      onOptimistic({ kind: "update", workout: next });
+      const result = await setExerciseDone(workout.id, index, done);
+      if (!result.ok) setTickError(result.message);
+    });
+  };
+  const exercises = workout?.structure?.kind === "strength" ? workout.structure.exercises : [];
+  const progress = exerciseProgress(workout?.structure);
+
   const errors = state.status === "error" ? state.fieldErrors : undefined;
   const structureErrors = state.status === "error" ? state.structureErrors : undefined;
   const busy = pending || deleting || toggling;
@@ -196,6 +241,65 @@ export function WorkoutDialog({ dateIso, workout, open, onOpenChange, onOptimist
               <p role="alert" className="text-destructive text-sm">
                 {toggleError}
               </p>
+            )}
+            {workout && progress && exercises.length > 0 && (
+              <section
+                data-slot="exercise-checklist"
+                aria-labelledby="exercise-checklist-title"
+                aria-describedby="exercise-checklist-hint"
+                aria-busy={ticking || undefined}
+                className="flex flex-col gap-1.5"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <h3 id="exercise-checklist-title" className="text-sm font-medium">
+                    Exercise checklist
+                  </h3>
+                  <p id="exercise-checklist-hint" className="text-muted-foreground text-xs">
+                    {`${progress.done} of ${progress.total} exercise${progress.total === 1 ? "" : "s"} · workout completes when all are ticked`}
+                  </p>
+                </div>
+                <ul className="divide-y rounded-lg border">
+                  {exercises.map((exercise, i) => {
+                    const checked = exercise.done === true;
+                    return (
+                      <li key={i}>
+                        <label
+                          className={cn(
+                            "hover:bg-muted/60 flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors",
+                            (pending || deleting || toggling) && "pointer-events-none opacity-60",
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => tickExercise(i, e.target.checked)}
+                            disabled={pending || deleting || toggling}
+                            className="accent-brand focus-visible:ring-ring/50 size-4 shrink-0 cursor-pointer rounded outline-none focus-visible:ring-3 dark:scheme-dark"
+                          />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span
+                              className={cn(
+                                "truncate text-sm",
+                                checked && "text-muted-foreground line-through",
+                              )}
+                            >
+                              {exercise.name}
+                            </span>
+                            <span className="text-muted-foreground truncate text-xs tabular-nums">
+                              {summarizeSets(exercise)}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {tickError && (
+                  <p role="alert" className="text-destructive text-sm">
+                    {tickError}
+                  </p>
+                )}
+              </section>
             )}
             <FieldGroup>
               {editing && (

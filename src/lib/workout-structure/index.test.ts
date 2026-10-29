@@ -3,9 +3,15 @@ import {
   STRUCTURE_LIMITS,
   draftFromStructure,
   emptyDraft,
+  exerciseProgress,
   parseStructure,
   structureFromDraft,
   summarize,
+  summarizeSets,
+  summarizeWithProgress,
+  withDraftExerciseDone,
+  withExerciseDone,
+  withoutExerciseDone,
   workoutStructureSchema,
   type StructureDraft,
   type WorkoutStructure,
@@ -222,5 +228,122 @@ describe("workout types → structure kind", () => {
       mobility: null,
       other: null,
     });
+  });
+});
+
+describe("exercise completion", () => {
+  const ticked: WorkoutStructure = {
+    kind: "strength",
+    exercises: [
+      { name: "Squat", sets: [{ reps: 5, weightKg: 80 }], done: true },
+      { name: "Bench", sets: [{ reps: 8 }, { reps: 8 }] },
+      { name: "Row", sets: [{ reps: 10 }], done: false },
+    ],
+  };
+
+  it("the schema accepts an optional boolean done per exercise", () => {
+    expect(accepts(ticked)).toBe(true);
+    const bad = {
+      kind: "strength",
+      exercises: [{ name: "Squat", sets: [{ reps: 5 }], done: "yes" }],
+    };
+    expect(accepts(bad)).toBe(false);
+    const parsed = parseStructure(ticked, "strength");
+    expect(
+      parsed.ok && parsed.structure?.kind === "strength" && parsed.structure.exercises[0].done,
+    ).toBe(true);
+  });
+
+  it("draft round-trip keeps done (true kept, false/absent dropped)", () => {
+    const back = structureFromDraft(draftFromStructure(ticked)) as WorkoutStructure;
+    expect(back).toEqual({
+      kind: "strength",
+      exercises: [
+        { name: "Squat", sets: [{ reps: 5, weightKg: 80 }], done: true },
+        { name: "Bench", sets: [{ reps: 8 }, { reps: 8 }] },
+        { name: "Row", sets: [{ reps: 10 }] },
+      ],
+    });
+  });
+
+  it("done follows the draft row when it's renamed or another row is removed", () => {
+    const draft = draftFromStructure(ticked);
+    if (draft.kind !== "strength") throw new Error("expected strength");
+    const edited = {
+      ...draft,
+      exercises: draft.exercises
+        .filter((e) => e.name !== "Bench")
+        .map((e) => (e.name === "Squat" ? { ...e, name: "Back squat" } : e)),
+    };
+    const back = structureFromDraft(edited) as Extract<WorkoutStructure, { kind: "strength" }>;
+    expect(back.exercises.map((e) => [e.name, e.done ?? false])).toEqual([
+      ["Back squat", true],
+      ["Row", false],
+    ]);
+  });
+
+  it("withDraftExerciseDone ticks and unticks one draft row", () => {
+    const draft = draftFromStructure(strength);
+    if (draft.kind !== "strength") throw new Error("expected strength");
+    const on = withDraftExerciseDone(draft, draft.exercises[1].id, true);
+    expect(on.exercises.map((e) => e.done)).toEqual([undefined, true]);
+    const off = withDraftExerciseDone(on, draft.exercises[1].id, false);
+    expect("done" in off.exercises[1]).toBe(false);
+  });
+
+  it("exerciseProgress counts ticked exercises; null for non-strength", () => {
+    expect(exerciseProgress(ticked)).toEqual({ done: 1, total: 3 });
+    expect(exerciseProgress(strength)).toEqual({ done: 0, total: 2 });
+    expect(exerciseProgress(intervals)).toBeNull();
+    expect(exerciseProgress(null)).toBeNull();
+  });
+
+  it("summarizeWithProgress shows n/m once anything is ticked", () => {
+    expect(summarizeWithProgress(ticked)).toBe("1/3 ex · 4 sets");
+    expect(summarizeWithProgress(strength)).toBe(summarize(strength));
+    expect(summarizeWithProgress(intervals)).toBe(summarize(intervals));
+    // summarize itself ignores progress.
+    expect(summarize(ticked)).toBe("3 ex · 4 sets");
+  });
+
+  it("withExerciseDone ticks or removes the flag; null when out of range or not strength", () => {
+    const on = withExerciseDone(strength, 1, true);
+    expect(on?.exercises.map((e) => e.done)).toEqual([undefined, true]);
+    const off = withExerciseDone(ticked, 0, false);
+    expect(off && "done" in off.exercises[0]).toBe(false);
+    expect(withExerciseDone(strength, 2, true)).toBeNull();
+    expect(withExerciseDone(strength, -1, true)).toBeNull();
+    expect(withExerciseDone(intervals, 0, true)).toBeNull();
+  });
+
+  it("withoutExerciseDone strips every flag and leaves other kinds alone", () => {
+    const stripped = withoutExerciseDone(ticked);
+    expect(stripped.kind === "strength" && stripped.exercises.some((e) => "done" in e)).toBe(false);
+    expect(withoutExerciseDone(intervals)).toBe(intervals);
+    expect(withoutExerciseDone(null)).toBeNull();
+  });
+
+  it("summarizeSets is compact and groups equal sets", () => {
+    expect(
+      summarizeSets({
+        name: "Squat",
+        sets: [
+          { reps: 5, weightKg: 80 },
+          { reps: 5, weightKg: 80 },
+          { reps: 5, weightKg: 80 },
+        ],
+      }),
+    ).toBe("3 × 5 @ 80 kg");
+    expect(summarizeSets({ name: "Pull-up", sets: [{ reps: 8 }] })).toBe("1 × 8");
+    expect(
+      summarizeSets({
+        name: "Bench",
+        sets: [
+          { reps: 5, weightKg: 62.5 },
+          { reps: 5, weightKg: 62.5 },
+          { reps: 3, weightKg: 70 },
+        ],
+      }),
+    ).toBe("2 × 5 @ 62.5 kg, 1 × 3 @ 70 kg");
   });
 });
