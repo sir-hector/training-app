@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { format } from "date-fns";
 import { auth } from "@/auth";
+import { getToday } from "@/lib/today/server";
 import { AppNav } from "@/components/app-nav";
 import { StatTile } from "@/components/stats/stat-tile";
 import { TypeBreakdown } from "@/components/stats/type-breakdown";
@@ -22,8 +22,8 @@ export default async function StatsPage() {
   const session = await auth();
   if (!session) redirect("/?callbackUrl=/app/stats");
 
-  // Same "today" as the calendar: the server's local date.
-  const today = format(new Date(), "yyyy-MM-dd");
+  // Same "today" as the calendar: the user's timezone (see lib/today).
+  const today = await getToday();
   const range = lastWeeksRange(today, WEEKS);
   const workouts = await workoutsRepo.listByDateRange(session.user.id, range.from, range.to);
   const stats = computeWorkoutStats(workouts, { ...range, today });
