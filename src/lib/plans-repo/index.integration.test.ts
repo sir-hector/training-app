@@ -159,7 +159,10 @@ describe("plansRepo.applyToCalendar", () => {
     await plansRepo.addDay(userA, plan.id, { weekIndex: 1, dayOfWeek: 6, type: "long_run" });
     await plansRepo.addDay(userA, plan.id, { weekIndex: 1, dayOfWeek: 6, type: "mobility" });
 
-    expect(await plansRepo.applyToCalendar(userA, plan.id, "2033-02-28")).toBe(4);
+    expect(await plansRepo.applyToCalendar(userA, plan.id, "2033-02-28")).toEqual({
+      created: 4,
+      skipped: 0,
+    });
 
     const created = await workoutsOf(userA, "2033-02-28", "2033-03-13");
     expect(
@@ -177,9 +180,12 @@ describe("plansRepo.applyToCalendar", () => {
       { date: "2033-03-13", type: "mobility", notes: null, structure: null, done: false },
     ]);
 
-    // Applying again stamps a second copy; the plan itself is untouched.
-    expect(await plansRepo.applyToCalendar(userA, plan.id, "2033-02-28")).toBe(4);
-    expect(await workoutsOf(userA, "2033-02-28", "2033-03-13")).toHaveLength(8);
+    // Applying again skips everything; the plan itself is untouched.
+    expect(await plansRepo.applyToCalendar(userA, plan.id, "2033-02-28")).toEqual({
+      created: 0,
+      skipped: 4,
+    });
+    expect(await workoutsOf(userA, "2033-02-28", "2033-03-13")).toHaveLength(4);
     expect((await plansRepo.findById(userA, plan.id))?.days).toHaveLength(4);
   });
 
@@ -217,14 +223,78 @@ describe("plansRepo.applyToCalendar", () => {
       type: "gym",
       structure: ticked,
     });
-    expect(await plansRepo.applyToCalendar(userA, plan.id, "2036-01-07")).toBe(2);
+    expect(await plansRepo.applyToCalendar(userA, plan.id, "2036-01-07")).toEqual({
+      created: 2,
+      skipped: 0,
+    });
     const created = await workoutsOf(userA, "2036-01-07", "2036-01-13");
     expect(created.map((w) => w.structure)).toEqual([untickedStructure, untickedStructure]);
   });
 
+  it("skips exactly the plan workouts already on the calendar, by count", async () => {
+    const plan = await plansRepo.create(userA, { name: "Partly there", weeks: 1 });
+    await plansRepo.addDay(userA, plan.id, { weekIndex: 0, dayOfWeek: 1, type: "run" });
+    await plansRepo.addDay(userA, plan.id, { weekIndex: 0, dayOfWeek: 1, type: "run" });
+    await plansRepo.addDay(userA, plan.id, { weekIndex: 0, dayOfWeek: 3, type: "gym" });
+    // One matching run, plus a bike on the gym day that must not block it.
+    await db.insert(workouts).values([
+      { userId: userA, date: "2033-06-07", type: "run", notes: "already here" },
+      { userId: userA, date: "2033-06-09", type: "bike" },
+    ]);
+
+    expect(await plansRepo.previewApply(userA, plan.id, "2033-06-06")).toEqual({
+      from: "2033-06-06",
+      to: "2033-06-12",
+      toAdd: 2,
+      skipped: 1,
+      untouched: 1,
+    });
+    expect(await plansRepo.applyToCalendar(userA, plan.id, "2033-06-06")).toEqual({
+      created: 2,
+      skipped: 1,
+    });
+    const after = await workoutsOf(userA, "2033-06-06", "2033-06-12");
+    // Two runs on the same date: compare without relying on their order.
+    expect(after.map((w) => [w.date, w.type, w.notes]).sort()).toEqual([
+      ["2033-06-07", "run", null],
+      ["2033-06-07", "run", "already here"],
+      ["2033-06-09", "bike", null],
+      ["2033-06-09", "gym", null],
+    ]);
+  });
+
+  it("previewApply writes nothing and counts only the user's own workouts", async () => {
+    const plan = await plansRepo.create(userA, { name: "Preview", weeks: 2 });
+    await plansRepo.addDay(userA, plan.id, { weekIndex: 0, dayOfWeek: 0, type: "run" });
+    await plansRepo.addDay(userA, plan.id, { weekIndex: 1, dayOfWeek: 2, type: "tempo" });
+    await db.insert(workouts).values([
+      // Another user's matching workouts must not count.
+      { userId: userB, date: "2033-09-05", type: "run" },
+      { userId: userB, date: "2033-09-14", type: "tempo" },
+      { userId: userB, date: "2033-09-10", type: "gym" },
+      // userA: one match, one other workout in range, one match just outside.
+      { userId: userA, date: "2033-09-14", type: "tempo" },
+      { userId: userA, date: "2033-09-07", type: "mobility" },
+      { userId: userA, date: "2033-09-19", type: "run" },
+    ]);
+
+    expect(await plansRepo.previewApply(userA, plan.id, "2033-09-05")).toEqual({
+      from: "2033-09-05",
+      to: "2033-09-18",
+      toAdd: 1,
+      skipped: 1,
+      untouched: 1,
+    });
+    expect(await workoutsOf(userA, "2033-09-05", "2033-09-18")).toHaveLength(2);
+    await expect(plansRepo.previewApply(userA, plan.id, "2033-09-06")).rejects.toThrow(RangeError);
+  });
+
   it("returns 0 for a plan with no days", async () => {
     const plan = await plansRepo.create(userA, { name: "Empty", weeks: 3 });
-    expect(await plansRepo.applyToCalendar(userA, plan.id, "2034-01-02")).toBe(0);
+    expect(await plansRepo.applyToCalendar(userA, plan.id, "2034-01-02")).toEqual({
+      created: 0,
+      skipped: 0,
+    });
   });
 
   it("rejects a start that isn't a Monday and writes nothing", async () => {
@@ -293,6 +363,7 @@ describe("CRITICAL: cross-user access is refused for every method", () => {
     await plansRepo.addDay(userB, b.id, { weekIndex: 0, dayOfWeek: 3, type: "bike" });
 
     expect(await plansRepo.applyToCalendar(userA, b.id, "2035-01-01")).toBeNull();
+    expect(await plansRepo.previewApply(userA, b.id, "2035-01-01")).toBeNull();
     expect(await workoutsOf(userA, "2035-01-01", "2035-01-07")).toHaveLength(0);
     expect(await workoutsOf(userB, "2035-01-01", "2035-01-07")).toHaveLength(0);
   });

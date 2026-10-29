@@ -202,10 +202,46 @@ const applyPlanSchema = z.object({
   startMonday: z.string().refine(isMonday, "Pick a Monday to start on"),
 });
 
+function applyInputError(error: z.ZodError<z.infer<typeof applyPlanSchema>>): string {
+  return z.flattenError(error).fieldErrors.startMonday?.[0] ?? "Invalid request.";
+}
+
+export type ApplyPlanPreview =
+  | {
+      ok: true;
+      /** Plan workouts that would be added. */
+      toAdd: number;
+      /** Plan workouts already on the calendar (same date and type); skipped. */
+      skipped: number;
+      /** Other existing workouts in the plan's weeks; left as they are. */
+      untouched: number;
+    }
+  | { ok: false; message: string };
+
+/** Read-only: what applying the plan from `startMonday` would add and skip. */
+export async function previewApplyPlan(
+  planId: string,
+  startMonday: string,
+): Promise<ApplyPlanPreview> {
+  const userId = await currentUserId();
+  if (!userId) return { ok: false, message: NOT_SIGNED_IN };
+
+  const parsed = applyPlanSchema.safeParse({ planId, startMonday });
+  if (!parsed.success) return { ok: false, message: applyInputError(parsed.error) };
+
+  const preview = await plansRepo.previewApply(userId, parsed.data.planId, parsed.data.startMonday);
+  if (!preview) return { ok: false, message: "Plan not found." };
+  const { toAdd, skipped, untouched } = preview;
+  return { ok: true, toAdd, skipped, untouched };
+}
+
 export type ApplyPlanResult =
   | {
       ok: true;
-      count: number;
+      /** Workouts added to the calendar. */
+      created: number;
+      /** Plan workouts skipped because they were already on the calendar. */
+      skipped: number;
       /** First and last day the plan covers, "YYYY-MM-DD". */
       from: string;
       to: string;
@@ -214,28 +250,28 @@ export type ApplyPlanResult =
     }
   | { ok: false; message: string };
 
-/** Stamp the plan onto the calendar from `startMonday`. All or nothing. */
+/**
+ * Stamp the plan onto the calendar from `startMonday`, skipping workouts
+ * already there. All or nothing.
+ */
 export async function applyPlan(planId: string, startMonday: string): Promise<ApplyPlanResult> {
   const userId = await currentUserId();
   if (!userId) return { ok: false, message: NOT_SIGNED_IN };
 
   const parsed = applyPlanSchema.safeParse({ planId, startMonday });
-  if (!parsed.success) {
-    return {
-      ok: false,
-      message: z.flattenError(parsed.error).fieldErrors.startMonday?.[0] ?? "Invalid request.",
-    };
-  }
+  if (!parsed.success) return { ok: false, message: applyInputError(parsed.error) };
 
   const plan = await plansRepo.findById(userId, parsed.data.planId);
   if (!plan) return { ok: false, message: "Plan not found." };
   if (plan.days.length === 0) return { ok: false, message: "Add a workout to the plan first." };
 
-  const count = await plansRepo.applyToCalendar(userId, plan.id, parsed.data.startMonday);
-  if (count === null) return { ok: false, message: "Plan not found." };
+  const result = await plansRepo.applyToCalendar(userId, plan.id, parsed.data.startMonday);
+  if (!result) return { ok: false, message: "Plan not found." };
 
-  revalidatePath("/app");
-  revalidatePath("/app/stats");
+  if (result.created > 0) {
+    revalidatePath("/app");
+    revalidatePath("/app/stats");
+  }
   const range = planDateRange(parsed.data.startMonday, plan.weeks);
-  return { ok: true, count, ...range, month: monthOf(parsed.data.startMonday) };
+  return { ok: true, ...result, ...range, month: monthOf(parsed.data.startMonday) };
 }

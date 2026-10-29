@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
-import { CalendarCheck, CalendarPlus } from "lucide-react";
-import { applyPlan, type ApplyPlanResult } from "@/app/app/plans/actions";
+import { CalendarCheck, CalendarPlus, CalendarX2, Loader2 } from "lucide-react";
+import {
+  applyPlan,
+  previewApplyPlan,
+  type ApplyPlanPreview,
+  type ApplyPlanResult,
+} from "@/app/app/plans/actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -68,6 +73,11 @@ export function ApplyPlanDialog({ planId, planName, weeks, workoutCount, todayIs
   );
 }
 
+/** Per start Monday: undefined while loading, or the server's answer. */
+type Previews = Record<string, ApplyPlanPreview>;
+
+const PREVIEW_FAILED: ApplyPlanPreview = { ok: false, message: "Preview unavailable." };
+
 function ApplyBody({
   planId,
   planName,
@@ -77,13 +87,46 @@ function ApplyBody({
   onClose,
 }: Props & { onClose: () => void }) {
   const [date, setDate] = useState(() => nextMondayOnOrAfter(todayIso));
+  const [previews, setPreviews] = useState<Previews>({});
   const [result, setResult] = useState<ApplyPlanResult | null>(null);
   const [pending, startApply] = useTransition();
+  const requested = useRef(new Set<string>());
 
   const valid = isIsoDate(date);
   const start = valid ? snapToMonday(date) : null;
   const range = start ? planDateRange(start, weeks) : null;
   const done = result?.ok ? result : null;
+
+  // Fetch each start's preview once. State is only set when the request
+  // settles, so the loading state is simply "no answer for this start yet".
+  const requestPreview = useCallback(
+    (monday: string) => {
+      if (requested.current.has(monday)) return;
+      requested.current.add(monday);
+      const settle = (preview: ApplyPlanPreview) =>
+        setPreviews((prev) => ({ ...prev, [monday]: preview }));
+      previewApplyPlan(planId, monday).then(settle, () => settle(PREVIEW_FAILED));
+    },
+    [planId],
+  );
+
+  // The initial start date; later ones are requested from the change handler.
+  const initialStart = useRef(start);
+  useEffect(() => {
+    if (initialStart.current) requestPreview(initialStart.current);
+  }, [requestPreview]);
+
+  const changeDate = (value: string) => {
+    setDate(value);
+    if (isIsoDate(value)) requestPreview(snapToMonday(value));
+  };
+
+  const preview = start ? previews[start] : undefined;
+  const loaded = preview?.ok ? preview : null;
+  // If the preview fails, fall back to the plan's own count and let the
+  // server skip duplicates anyway.
+  const toAdd = loaded ? loaded.toAdd : workoutCount;
+  const nothingToAdd = loaded !== null && loaded.toAdd === 0;
 
   const confirm = () => {
     if (!start) return;
@@ -95,9 +138,10 @@ function ApplyBody({
       <>
         <DialogHeader>
           <DialogTitle>Plan applied</DialogTitle>
-          <DialogDescription>
-            {plural(done.count, "workout")} added to your calendar, {long(done.from)} to{" "}
-            {long(done.to)}.
+          <DialogDescription data-testid="apply-result">
+            Added {plural(done.created, "workout")}
+            {done.skipped > 0 && `, skipped ${done.skipped} already on your calendar`}.{" "}
+            {long(done.from)} to {long(done.to)}.
           </DialogDescription>
         </DialogHeader>
         <div />
@@ -122,7 +166,7 @@ function ApplyBody({
       <DialogHeader>
         <DialogTitle>Apply to calendar</DialogTitle>
         <DialogDescription>
-          Adds every workout in “{planName}” to your calendar. Existing workouts stay as they are.
+          Adds the workouts in “{planName}” to your calendar. Any already there are skipped.
         </DialogDescription>
       </DialogHeader>
 
@@ -133,7 +177,7 @@ function ApplyBody({
             id="apply-start"
             type="date"
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => changeDate(e.target.value)}
             required
             aria-invalid={!valid}
             className="border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30 h-8 w-full rounded-lg border bg-transparent px-2.5 text-sm outline-none focus-visible:ring-3"
@@ -145,21 +189,53 @@ function ApplyBody({
         </Field>
 
         {range ? (
-          <dl
-            aria-label="Preview"
-            className="bg-muted grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg p-3 text-sm"
-          >
-            <dt className="text-muted-foreground">From</dt>
-            <dd data-testid="apply-from">{long(range.from)}</dd>
-            <dt className="text-muted-foreground">To</dt>
-            <dd data-testid="apply-to">{long(range.to)}</dd>
-            <dt className="text-muted-foreground">Adds</dt>
-            <dd data-testid="apply-count">
-              {plural(workoutCount, "workout")} over {plural(weeks, "week")}
-            </dd>
-          </dl>
+          <div className="bg-muted flex flex-col gap-2 rounded-lg p-3 text-sm">
+            <dl aria-label="Preview" className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+              <dt className="text-muted-foreground">From</dt>
+              <dd data-testid="apply-from">{long(range.from)}</dd>
+              <dt className="text-muted-foreground">To</dt>
+              <dd data-testid="apply-to">{long(range.to)}</dd>
+              <dt className="text-muted-foreground">Adds</dt>
+              <dd data-testid="apply-count">
+                {plural(toAdd, "workout")} over {plural(weeks, "week")}
+              </dd>
+            </dl>
+            <div aria-live="polite" className="flex flex-col gap-1 empty:hidden">
+              {!preview && (
+                <p className="text-muted-foreground flex items-center gap-1.5">
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  Checking your calendar…
+                </p>
+              )}
+              {preview && !preview.ok && (
+                <p className="text-muted-foreground">
+                  Couldn’t check your calendar. Workouts already there are still skipped.
+                </p>
+              )}
+              {loaded && loaded.skipped > 0 && (
+                <p data-testid="apply-skipped" className="flex items-start gap-1.5">
+                  <CalendarX2 className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  {loaded.skipped} already on your calendar will be skipped.
+                </p>
+              )}
+              {loaded && loaded.untouched > 0 && (
+                <p data-testid="apply-untouched" className="text-muted-foreground">
+                  {plural(loaded.untouched, "other workout")} in these weeks{" "}
+                  {loaded.untouched === 1 ? "stays" : "stay"} as{" "}
+                  {loaded.untouched === 1 ? "it is" : "they are"}.
+                </p>
+              )}
+            </div>
+          </div>
         ) : (
           <p className="text-destructive text-sm">Pick a valid date.</p>
+        )}
+
+        {nothingToAdd && (
+          <p data-testid="apply-nothing" className="text-sm font-medium">
+            Every workout in this plan is already on your calendar for these weeks. Pick a different
+            start date.
+          </p>
         )}
 
         {result && !result.ok && (
@@ -173,9 +249,13 @@ function ApplyBody({
         <Button type="button" variant="ghost" onClick={onClose} disabled={pending}>
           Cancel
         </Button>
-        <Button type="button" onClick={confirm} disabled={pending || !start}>
+        <Button type="button" onClick={confirm} disabled={pending || !start || nothingToAdd}>
           <CalendarPlus data-icon="inline-start" />
-          {pending ? "Adding…" : `Add ${plural(workoutCount, "workout")}`}
+          {pending
+            ? "Adding…"
+            : nothingToAdd
+              ? "Nothing to add"
+              : `Add ${plural(toAdd, "workout")}`}
         </Button>
       </DialogFooter>
     </>
