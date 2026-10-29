@@ -85,10 +85,14 @@ test("create a 2-week plan, apply it from a Monday, workouts land on the right d
   await expect(apply.getByTestId("apply-from")).toHaveText("Mon 2 Feb 2032");
   await expect(apply.getByTestId("apply-to")).toHaveText("Sun 15 Feb 2032");
   await expect(apply.getByTestId("apply-count")).toHaveText("3 workouts over 2 weeks");
+  await expect(apply.getByText("Checking your calendar…")).toBeHidden();
+  await expect(apply.getByTestId("apply-skipped")).toBeHidden();
   await apply.getByRole("button", { name: "Add 3 workouts" }).click();
 
   const applied = page.getByRole("dialog", { name: "Plan applied" });
-  await expect(applied).toContainText("3 workouts added to your calendar");
+  await expect(applied.getByTestId("apply-result")).toHaveText(
+    "Added 3 workouts. Mon 2 Feb 2032 to Sun 15 Feb 2032.",
+  );
   await applied.getByRole("link", { name: "Open February 2032" }).click();
 
   await expect(page).toHaveURL(/\/app\?month=2032-02$/);
@@ -106,6 +110,68 @@ test("create a 2-week plan, apply it from a Monday, workouts land on the right d
   ).toBeAttached();
   // Nothing anywhere else in the visible grid.
   await expect(page.getByRole("gridcell", { name: /, [1-9]\d* workouts?$/ })).toHaveCount(3);
+});
+
+test("re-applying a plan skips workouts already on the calendar", async ({ page }) => {
+  await page.goto("/app/plans");
+  await page.getByLabel("Plan name").fill("E2E repeat block");
+  await page.getByLabel("Weeks").fill("1");
+  await page.getByRole("button", { name: "Create plan" }).click();
+  await expect(page.getByRole("heading", { name: "E2E repeat block" })).toBeVisible();
+
+  let dialog = await openAdd(page, "Week 1, Monday");
+  await pickType(page, dialog, "Run");
+  await dialog.getByRole("button", { name: "Add to plan" }).click();
+  await expect(dialog).toBeHidden();
+  dialog = await openAdd(page, "Week 1, Thursday");
+  await pickType(page, dialog, "Gym");
+  await dialog.getByRole("button", { name: "Add to plan" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("1 week · 2 workouts")).toBeVisible();
+
+  // First apply: nothing there yet.
+  await page.getByRole("button", { name: "Apply to calendar" }).click();
+  let apply = page.getByRole("dialog", { name: "Apply to calendar" });
+  await apply.getByLabel("Start date").fill("2032-03-01");
+  await expect(apply.getByText("Checking your calendar…")).toBeHidden();
+  await apply.getByRole("button", { name: "Add 2 workouts" }).click();
+  let applied = page.getByRole("dialog", { name: "Plan applied" });
+  await expect(applied.getByTestId("apply-result")).toHaveText(
+    "Added 2 workouts. Mon 1 Mar 2032 to Sun 7 Mar 2032.",
+  );
+  await applied.getByRole("button", { name: "Close" }).first().click();
+  await expect(applied).toBeHidden();
+
+  // Same start again: everything is already there, so nothing can be added.
+  await page.getByRole("button", { name: "Apply to calendar" }).click();
+  apply = page.getByRole("dialog", { name: "Apply to calendar" });
+  await apply.getByLabel("Start date").fill("2032-03-01");
+  await expect(apply.getByTestId("apply-skipped")).toHaveText(
+    "2 already on your calendar will be skipped.",
+  );
+  await expect(apply.getByTestId("apply-count")).toHaveText("0 workouts over 1 week");
+  await expect(apply.getByTestId("apply-nothing")).toBeVisible();
+  await expect(apply.getByRole("button", { name: "Nothing to add" })).toBeDisabled();
+
+  // A different Monday is free again.
+  await apply.getByLabel("Start date").fill("2032-03-08");
+  await expect(apply.getByTestId("apply-count")).toHaveText("2 workouts over 1 week");
+  await expect(apply.getByTestId("apply-skipped")).toBeHidden();
+  await expect(apply.getByTestId("apply-nothing")).toBeHidden();
+  await apply.getByRole("button", { name: "Add 2 workouts" }).click();
+  applied = page.getByRole("dialog", { name: "Plan applied" });
+  await expect(applied.getByTestId("apply-result")).toHaveText(
+    "Added 2 workouts. Mon 8 Mar 2032 to Sun 14 Mar 2032.",
+  );
+  await applied.getByRole("link", { name: "Open March 2032" }).click();
+
+  // Exactly one copy of each on both weeks.
+  await expect(page.getByRole("heading", { name: "March 2032" })).toBeVisible();
+  const cell = (iso: string) => page.getByRole("gridcell", { name: new RegExp(`^${iso},`) });
+  for (const iso of ["2032-03-01", "2032-03-04", "2032-03-08", "2032-03-11"]) {
+    await expect(cell(iso)).toHaveAccessibleName(`${iso}, 1 workout`);
+  }
+  await expect(page.getByRole("gridcell", { name: /, [1-9]\d* workouts?$/ })).toHaveCount(4);
 });
 
 test("another user's (or a missing) plan is a 404", async ({ page }) => {

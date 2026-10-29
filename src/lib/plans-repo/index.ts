@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, getTableColumns, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { planDays, plans, workouts, type Plan, type PlanDay } from "@/db/schema";
-import { PLAN_MAX_WEEKS, planDayDate } from "@/lib/plan-dates";
+import { matchPlanToCalendar } from "@/lib/plan-apply";
+import { PLAN_MAX_WEEKS, planDateRange, planDayDate } from "@/lib/plan-dates";
 import { withoutExerciseDone, type WorkoutStructure } from "@/lib/workout-structure";
 import type { WorkoutType } from "@/lib/workout-types";
 
@@ -13,6 +14,20 @@ export type PlanWithDays = Plan & { days: PlanDay[] };
 
 export type CreatePlanInput = { name: string; weeks: number };
 export type UpdatePlanPatch = { name?: string; weeks?: number };
+
+export type ApplyResult = { created: number; skipped: number };
+
+export type ApplyPreview = {
+  /** First (Monday) and last (Sunday) date the plan covers. */
+  from: string;
+  to: string;
+  /** Plan workouts that would be created. */
+  toAdd: number;
+  /** Plan workouts skipped because the same type is already on that date. */
+  skipped: number;
+  /** Other existing workouts in the range; left as they are. */
+  untouched: number;
+};
 
 export type PlanDayInput = {
   /** 0-based; must be below the plan's `weeks`. */
@@ -55,6 +70,47 @@ function checkDayPosition(weekIndex: number, dayOfWeek: number): void {
 /** Ids of the plans `userId` owns, as a subquery for scoping plan_days writes. */
 function ownedPlanIds(userId: string) {
   return db.select({ id: plans.id }).from(plans).where(eq(plans.userId, userId));
+}
+
+/**
+ * Shared by `previewApply` and `applyToCalendar`: load the plan (scoped to
+ * `userId`, so another user's plan yields null), compute its dated workouts,
+ * read the user's own workouts in the plan's range, and match them.
+ */
+async function prepareApply(userId: string, planId: string, startMonday: string) {
+  // Validate before touching the database (throws for a non-Monday).
+  planDayDate(startMonday, 0, 0);
+  const [plan] = await db
+    .select()
+    .from(plans)
+    .where(and(eq(plans.userId, userId), eq(plans.id, planId)))
+    .limit(1);
+  if (!plan) return null;
+  const range = planDateRange(startMonday, plan.weeks);
+  const [days, existing] = await Promise.all([
+    db
+      .select()
+      .from(planDays)
+      .where(eq(planDays.planId, plan.id))
+      .orderBy(asc(planDays.weekIndex), asc(planDays.dayOfWeek), asc(planDays.createdAt)),
+    db
+      .select({ date: workouts.date, type: workouts.type })
+      .from(workouts)
+      .where(
+        and(
+          eq(workouts.userId, userId),
+          gte(workouts.date, range.from),
+          lte(workouts.date, range.to),
+        ),
+      ),
+  ]);
+  const planned = days.map((d) => ({
+    date: planDayDate(startMonday, d.weekIndex, d.dayOfWeek),
+    type: d.type,
+    notes: d.notes,
+    structure: d.structure,
+  }));
+  return { plan, range, match: matchPlanToCalendar(planned, existing, range) };
 }
 
 /**
@@ -224,43 +280,73 @@ export const plansRepo = {
   },
 
   /**
+   * What applying the plan from `startMonday` would do, without writing:
+   * how many workouts would be added, how many skipped because a workout of
+   * the same type is already on that date (see `plan-apply`), and how many
+   * other existing workouts in the plan's range stay as they are. Only the
+   * user's own workouts are considered.
+   *
+   * Returns null when the plan doesn't exist for this user. Throws a
+   * RangeError when `startMonday` isn't a Monday.
+   */
+  async previewApply(
+    userId: string,
+    planId: string,
+    startMonday: string,
+  ): Promise<ApplyPreview | null> {
+    const prepared = await prepareApply(userId, planId, startMonday);
+    if (!prepared) return null;
+    const { match, range } = prepared;
+    return {
+      ...range,
+      toAdd: match.toInsert.length,
+      skipped: match.skipped.length,
+      untouched: match.untouched,
+    };
+  },
+
+  /**
    * Stamp the plan onto the calendar: one workout per plan day, dated
-   * `startMonday + weekIndex * 7 + dayOfWeek`. All rows go in a single
-   * multi-row INSERT, so it is atomic: every workout is created or none is.
+   * `startMonday + weekIndex * 7 + dayOfWeek`, except plan workouts that are
+   * already there (same date and type, matched by count; see `plan-apply`),
+   * which are skipped. All new rows go in a single multi-row INSERT, so it is
+   * atomic: every workout is created or none is.
    *
    * Exercise `done` flags are stripped, so every stamped workout starts
    * with nothing ticked off.
    *
-   * Returns the number of workouts created, or null when the plan doesn't
-   * exist for this user (nothing is written). Throws a RangeError when
-   * `startMonday` isn't a Monday.
+   * Returns `{ created, skipped }`, or null when the plan doesn't exist for
+   * this user (nothing is written). Throws a RangeError when `startMonday`
+   * isn't a Monday.
    */
   async applyToCalendar(
     userId: string,
     planId: string,
     startMonday: string,
-  ): Promise<number | null> {
-    // Validate before touching the database (throws for a non-Monday).
-    planDayDate(startMonday, 0, 0);
-    const plan = await this.findById(userId, planId);
-    if (!plan) return null;
-    if (plan.days.length === 0) return 0;
-
+  ): Promise<ApplyResult | null> {
+    const prepared = await prepareApply(userId, planId, startMonday);
+    if (!prepared) return null;
+    const { match } = prepared;
+    // Known race: the existing workouts are read before the INSERT (neon-http
+    // has no interactive transactions), so two applies of the same plan
+    // running at the same moment can both miss each other's rows and create
+    // duplicates. Accepted: it takes two concurrent submits by one user.
+    if (match.toInsert.length === 0) return { created: 0, skipped: match.skipped.length };
     const rows = await db
       .insert(workouts)
       .values(
-        plan.days.map((d) => ({
+        match.toInsert.map((p) => ({
           userId,
-          date: planDayDate(startMonday, d.weekIndex, d.dayOfWeek),
-          type: d.type,
-          notes: d.notes,
+          date: p.date,
+          type: p.type,
+          notes: p.notes,
           // Fresh workouts start with nothing ticked off (also guards rows
           // written before plan days stripped the flag).
-          structure: withoutExerciseDone(d.structure),
+          structure: withoutExerciseDone(p.structure),
         })),
       )
       .returning({ id: workouts.id });
-    return rows.length;
+    return { created: rows.length, skipped: match.skipped.length };
   },
 };
 
